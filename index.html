@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCP SITE 11 — Recrutement</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<!-- MAINTENANCE -->
+<div id="page-maintenance" style="display:none">
+  <img class="maintenance-bg-logo" src="logo.png" alt="" />
+  <div class="maintenance-inner">
+    <img src="logo.png" alt="SCP SITE 11" />
+    <div class="maintenance-divider"></div>
+    <h1>Site en maintenance</h1>
+    <p>Le portail de recrutement SCP SITE 11 est<br/>temporairement indisponible. Revenez plus tard.</p>
+    <button class="btn-ghost" id="btn-maintenance-login">Accès RH</button>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav id="navbar">
+  <div class="nav-inner">
+    <div class="nav-logo">
+      <img src="logo.png" alt="SCP" />
+      <div>
+        <span class="nav-logo-text">SCP SITE 11</span>
+        <span class="nav-logo-sub">Secure · Contain · Protect</span>
+      </div>
+    </div>
+    <div class="nav-links">
+      <a href="#postes" class="nav-link">Postes ouverts</a>
+      <button class="btn-ghost" id="btn-open-rh-login">Espace RH</button>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-bg">
+    <div class="hero-bg-gradient"></div>
+    <img class="hero-bg-logo" src="logo.png" alt="" />
+    <div class="hero-bg-grid"></div>
+    <div class="hero-line hero-line-top"></div>
+    <div class="hero-line hero-line-bottom"></div>
+  </div>
+  <div class="hero-content">
+    <div class="hero-eyebrow">
+      <div class="hero-eyebrow-line"></div>
+      <span class="hero-eyebrow-text">Recrutement officiel</span>
+      <div class="hero-eyebrow-line"></div>
+    </div>
+    <h1>Rejoins la<br /><em>Fondation SCP</em></h1>
+    <p class="hero-sub">SCP SITE 11 recrute des agents dévoués, prêts à servir et protéger. Chaque candidature est examinée avec soin par notre équipe RH.</p>
+    <div class="hero-cta">
+      <a href="#postes" class="btn-primary">Voir les postes →</a>
+      <button class="btn-ghost" id="btn-hero-rh">Espace RH</button>
+    </div>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <span class="hero-stat-num" id="stat-postes">—</span>
+      <span class="hero-stat-label">Postes ouverts</span>
+    </div>
+    <div class="hero-stat">
+      <span class="hero-stat-num" id="stat-cands">—</span>
+      <span class="hero-stat-label">Candidatures</span>
+    </div>
+    <div class="hero-stat">
+      <span class="hero-stat-num">4</span>
+      <span class="hero-stat-label">Catégories</span>
+    </div>
+  </div>
+</section>
+
+<!-- POSTES -->
+<section id="postes">
+  <div class="section-eyebrow">
+    <div class="section-eyebrow-line"></div>
+    <span class="section-eyebrow-text">Opportunités</span>
+  </div>
+  <div class="section-header-row">
+    <h2>Postes<br/>ouverts</h2>
+    <div class="filters">
+      <button class="filter-btn active" data-cat="all">Tous</button>
+      <button class="filter-btn" data-cat="WL">WL</button>
+      <button class="filter-btn" data-cat="STAFF">STAFF</button>
+      <button class="filter-btn" data-cat="ANIMATION">ANIMATION</button>
+      <button class="filter-btn" data-cat="DÉVELOPPEMENT">DÉVELOPPEMENT</button>
+    </div>
+  </div>
+  <div class="postes-grid" id="postes-grid"></div>
+  <div class="empty-state" id="empty-postes" style="display:none">
+    <p>Aucun poste disponible pour le moment.</p>
+  </div>
+</section>
+
+<!-- MODAL POSTULER -->
+<div class="modal-overlay" id="modal-postuler" style="display:none">
+  <div class="modal">
+    <button class="modal-close" id="close-postuler">&times;</button>
+    <div class="modal-header">
+      <div class="modal-tag">Candidature</div>
+      <h3 id="modal-poste-title">Nom du poste</h3>
+    </div>
+    <form id="form-candidature" novalidate>
+      <div class="form-row">
+        <div class="field"><label>Prénom</label><input type="text" id="f-prenom" placeholder="Ton prénom" required /></div>
+        <div class="field"><label>Nom</label><input type="text" id="f-nom" placeholder="Ton nom" required /></div>
+      </div>
+      <div class="field"><label>Pseudo RP</label><input type="text" id="f-rp" placeholder="Ton pseudo en jeu" required /></div>
+      <div class="field"><label>Adresse mail</label><input type="email" id="f-email" placeholder="exemple@mail.com" required /></div>
+      <div class="field"><label>Lettre de motivation</label><textarea id="f-motivation" rows="5" placeholder="Explique pourquoi tu veux rejoindre l'équipe..." required></textarea></div>
+      <div class="field"><label>CV <span class="label-opt">(lien Google Drive, PDF...)</span></label><input type="text" id="f-cv" placeholder="https://drive.google.com/..." /></div>
+      <div class="field"><label>Informations supplémentaires</label><textarea id="f-extra" rows="3" placeholder="Expériences, disponibilités, projets passés..."></textarea></div>
+      <div class="form-error" id="form-error" style="display:none"></div>
+      <button type="submit" class="btn-submit" id="btn-submit-cand">
+        <span id="btn-submit-text">Envoyer ma candidature</span>
+        <span id="btn-submit-loader" style="display:none">Envoi en cours...</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL RH LOGIN -->
+<div class="modal-overlay" id="modal-rh-login" style="display:none">
+  <div class="modal modal-sm">
+    <button class="modal-close" id="close-rh-login">&times;</button>
+    <div class="modal-header">
+      <div class="modal-tag">Accès restreint</div>
+      <h3>Espace RH</h3>
+    </div>
+    <form id="form-rh-login" novalidate>
+      <div class="field"><label>Mot de passe</label><input type="password" id="rh-password" placeholder="••••••••" required /></div>
+      <div class="form-error" id="login-error" style="display:none">Mot de passe incorrect.</div>
+      <button type="submit" class="btn-submit">Accéder</button>
+    </form>
+  </div>
+</div>
+
+<!-- DASHBOARD RH -->
+<div id="rh-dashboard" style="display:none">
+  <div class="rh-header">
+    <div class="rh-header-logo">
+      <img src="logo.png" alt="SCP" />
+      <span>RH — SCP SITE 11</span>
+    </div>
+    <div class="rh-nav">
+      <button class="rh-tab active" data-tab="candidatures">Candidatures</button>
+      <button class="rh-tab" data-tab="postes">Postes</button>
+      <button class="rh-tab" data-tab="config">Configuration</button>
+      <button class="btn-ghost" id="btn-logout">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="rh-content" id="tab-candidatures">
+    <div class="rh-section-header">
+      <h2>Candidatures</h2>
+      <div class="rh-filters">
+        <select id="filter-status">
+          <option value="all">Tous les statuts</option>
+          <option value="en_attente">En attente</option>
+          <option value="en_charge">Pris en charge</option>
+          <option value="accepte">Accepté</option>
+          <option value="refuse">Refusé</option>
+        </select>
+        <select id="filter-cat-cand">
+          <option value="all">Toutes catégories</option>
+          <option value="WL">WL</option>
+          <option value="STAFF">STAFF</option>
+          <option value="ANIMATION">ANIMATION</option>
+          <option value="DÉVELOPPEMENT">DÉVELOPPEMENT</option>
+        </select>
+      </div>
+    </div>
+    <div class="candidatures-list" id="candidatures-list"></div>
+    <div class="empty-state" id="empty-cands" style="display:none"><p>Aucune candidature reçue.</p></div>
+  </div>
+
+  <div class="rh-content" id="tab-postes" style="display:none">
+    <div class="rh-section-header">
+      <h2>Gérer les postes</h2>
+      <button class="btn-primary" id="btn-nouveau-poste">+ Nouveau poste</button>
+    </div>
+    <div class="postes-rh-list" id="postes-rh-list"></div>
+  </div>
+
+  <div class="rh-content" id="tab-config" style="display:none">
+    <div class="config-card">
+      <h2>Configuration</h2>
+      <p class="config-info">Paramètres du portail de recrutement SCP SITE 11.</p>
+      <div class="field">
+        <label>Email RH (reçoit les nouvelles candidatures)</label>
+        <input type="email" id="cfg-rh-email" placeholder="rh@scpsite11.com" />
+      </div>
+      <div class="field">
+        <label>Nouveau mot de passe RH</label>
+        <input type="password" id="cfg-password" placeholder="Laisse vide pour ne pas changer" />
+        <small>Laisse vide pour conserver l'actuel</small>
+      </div>
+      <div class="config-separator"></div>
+      <div class="field">
+        <label>Mode maintenance</label>
+        <div class="toggle-row">
+          <span id="maintenance-label">Site en ligne</span>
+          <button class="btn-toggle" id="btn-toggle-maintenance">Activer la maintenance</button>
+        </div>
+        <small>En mode maintenance, seuls les RH peuvent accéder au site.</small>
+      </div>
+      <div class="config-separator"></div>
+      <button class="btn-primary" id="btn-save-config">Sauvegarder</button>
+      <div class="config-success" id="config-success" style="display:none">✓ Configuration sauvegardée</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOUVEAU/MODIFIER POSTE -->
+<div class="modal-overlay" id="modal-nouveau-poste" style="display:none">
+  <div class="modal">
+    <button class="modal-close" id="close-nouveau-poste">&times;</button>
+    <div class="modal-header">
+      <div class="modal-tag">RH — Gestion des postes</div>
+      <h3 id="nouveau-poste-title">Nouveau poste</h3>
+    </div>
+    <form id="form-poste" novalidate>
+      <div class="field"><label>Nom du poste</label><input type="text" id="poste-nom" placeholder="ex: Agent de sécurité" required /></div>
+      <div class="field">
+        <label>Catégorie</label>
+        <select id="poste-cat" required>
+          <option value="">Choisir...</option>
+          <option value="WL">WL</option>
+          <option value="STAFF">STAFF</option>
+          <option value="ANIMATION">ANIMATION</option>
+          <option value="DÉVELOPPEMENT">DÉVELOPPEMENT</option>
+        </select>
+      </div>
+      <div class="field"><label>Description</label><textarea id="poste-desc" rows="4" placeholder="Décris le rôle et les missions..." required></textarea></div>
+      <div class="field"><label>Prérequis</label><textarea id="poste-prereq" rows="3" placeholder="Ex: 16 ans minimum, expérience requise..."></textarea></div>
+      <div class="field">
+        <label>Statut des candidatures</label>
+        <select id="poste-statut">
+          <option value="ouvert">Ouvert — candidatures acceptées</option>
+          <option value="ferme">Fermé — candidatures désactivées</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-submit" id="btn-submit-poste">Créer le poste</button>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL DETAIL CANDIDATURE -->
+<div class="modal-overlay" id="modal-cand-detail" style="display:none">
+  <div class="modal modal-lg">
+    <button class="modal-close" id="close-cand-detail">&times;</button>
+    <div class="modal-header">
+      <div class="modal-tag" id="detail-cat">STAFF</div>
+      <h3 id="detail-poste">Nom du poste</h3>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-col">
+        <div class="detail-block"><span class="detail-label">Candidat</span><span class="detail-val" id="detail-nom"></span></div>
+        <div class="detail-block"><span class="detail-label">Pseudo RP</span><span class="detail-val" id="detail-rp"></span></div>
+        <div class="detail-block"><span class="detail-label">Email</span><span class="detail-val" id="detail-email"></span></div>
+        <div class="detail-block"><span class="detail-label">CV</span><span class="detail-val" id="detail-cv"></span></div>
+      </div>
+      <div class="detail-col">
+        <div class="detail-block"><span class="detail-label">Lettre de motivation</span><p class="detail-text" id="detail-motivation"></p></div>
+        <div class="detail-block"><span class="detail-label">Informations supplémentaires</span><p class="detail-text" id="detail-extra"></p></div>
+      </div>
+    </div>
+    <div class="detail-actions" id="detail-actions"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<footer>
+  <div class="footer-inner">
+    <img src="logo.png" alt="SCP" />
+    <p>© 2025 — SCP SITE 11 — Portail de recrutement — Secure · Contain · Protect</p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
