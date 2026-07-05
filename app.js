@@ -13,14 +13,17 @@ const FIREBASE_CONFIG = {
 
 const FORMSUBMIT_URL  = (e) => `https://formsubmit.co/ajax/${encodeURIComponent(e)}`;
 const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', maintenance: false };
+const RH_NAME_KEY      = 'rh_name';
 
 let config       = loadConfig();
 let postes       = [];
 let candidatures = [];
+let logs         = [];
 let currentPoste = null;
 let currentCand  = null;
 let editPosteId  = null;
 let db           = null;
+let currentRHName = sessionStorage.getItem(RH_NAME_KEY) || '';
 
 /* ── INIT ── */
 window.addEventListener('load', () => {
@@ -36,8 +39,12 @@ window.addEventListener('load', () => {
   bindConfigForm();
   bindRHTabs();
   bindDetailModal();
+  bindCandSearch();
+  bindLogFilter();
+  bindCopyDiscord();
   listenPostes();
   listenCandidatures();
+  listenLogs();
 });
 
 /* ============================================================
@@ -121,12 +128,66 @@ function listenCandidatures() {
   });
 }
 
+function listenLogs() {
+  db.collection('logs').orderBy('createdAt', 'desc').limit(300).onSnapshot(snap => {
+    logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (document.getElementById('rh-dashboard').style.display !== 'none') renderLogsRH();
+  });
+}
+
 function updateStats() {
   const openPostes = postes.filter(p => p.ouvert !== false).length;
   const s1 = document.getElementById('stat-postes');
   const s2 = document.getElementById('stat-cands');
   if (s1) s1.textContent = openPostes;
   if (s2) s2.textContent = candidatures.length;
+}
+
+/* ============================================================
+   LOGS D'ACTIVITÉ RH
+   ============================================================ */
+async function logAction(type, details = '') {
+  try {
+    await db.collection('logs').add({
+      rh: currentRHName || 'Inconnu',
+      type,
+      details,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      dateStr: new Date().toLocaleString('fr-FR'),
+    });
+  } catch (err) { console.error('[Log] ❌', err); }
+}
+
+function bindLogFilter() {
+  const sel = document.getElementById('filter-log-type');
+  if (sel) sel.addEventListener('change', renderLogsRH);
+}
+
+function renderLogsRH() {
+  const container = document.getElementById('logs-list');
+  const empty     = document.getElementById('empty-logs');
+  if (!container) return;
+  const typeFilter = document.getElementById('filter-log-type')?.value || 'all';
+  const list = typeFilter === 'all' ? logs : logs.filter(l => l.type === typeFilter);
+  container.innerHTML = '';
+  if (list.length === 0) { empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  list.forEach(l => {
+    const row = document.createElement('div');
+    row.className = 'log-entry';
+    row.innerHTML = `
+      <span class="log-type log-type-${slugType(l.type)}">${esc(l.type)}</span>
+      <div class="log-body">
+        <div class="log-details">${esc(l.details || '')}</div>
+        <div class="log-meta"><strong>${esc(l.rh || 'Inconnu')}</strong> — ${esc(l.dateStr || '')}</div>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function slugType(t) {
+  return (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
 }
 
 /* ============================================================
@@ -232,8 +293,22 @@ function bindRHLogin() {
   });
   document.getElementById('form-rh-login').addEventListener('submit', e => {
     e.preventDefault();
-    if (val('rh-password') === config.password) { hide('modal-rh-login'); openDashboard(); }
-    else document.getElementById('login-error').style.display = '';
+    const name = val('rh-name');
+    if (!name) {
+      document.getElementById('login-error').textContent = 'Merci d\'indiquer ton nom / pseudo.';
+      document.getElementById('login-error').style.display = '';
+      return;
+    }
+    if (val('rh-password') === config.password) {
+      currentRHName = name;
+      sessionStorage.setItem(RH_NAME_KEY, name);
+      hide('modal-rh-login');
+      openDashboard();
+      logAction('Connexion', 'Connexion à l\'espace RH');
+    } else {
+      document.getElementById('login-error').textContent = 'Mot de passe incorrect.';
+      document.getElementById('login-error').style.display = '';
+    }
   });
 }
 
@@ -247,8 +322,11 @@ function openDashboard() {
   document.getElementById('postes').style.display           = 'none';
   document.querySelector('footer').style.display            = 'none';
   document.getElementById('rh-dashboard').style.display     = '';
+  const connEl = document.getElementById('rh-connected-as');
+  if (connEl) connEl.textContent = currentRHName ? `Connecté en tant que ${currentRHName}` : '';
   renderCandidaturesRH();
   renderPostesRH();
+  renderLogsRH();
   fillConfigForm();
 }
 
@@ -257,7 +335,10 @@ function closeDashboard() {
   applyMaintenance();
 }
 
-document.getElementById('btn-logout').addEventListener('click', closeDashboard);
+document.getElementById('btn-logout').addEventListener('click', () => {
+  logAction('Connexion', 'Déconnexion de l\'espace RH');
+  closeDashboard();
+});
 
 function bindRHTabs() {
   document.querySelectorAll('.rh-tab').forEach(tab => {
@@ -266,16 +347,24 @@ function bindRHTabs() {
       tab.classList.add('active');
       document.querySelectorAll('.rh-content').forEach(c => c.style.display = 'none');
       document.getElementById(`tab-${tab.dataset.tab}`).style.display = '';
+      if (tab.dataset.tab === 'logs') renderLogsRH();
     });
   });
+}
+
+function bindCandSearch() {
+  const input = document.getElementById('search-discord');
+  if (input) input.addEventListener('input', renderCandidaturesRH);
 }
 
 function renderCandidaturesRH() {
   const sf = document.getElementById('filter-status').value;
   const cf = document.getElementById('filter-cat-cand').value;
+  const search = (document.getElementById('search-discord')?.value || '').trim().toLowerCase();
   const list = candidatures.filter(c => {
     if (sf !== 'all' && c.statut   !== sf) return false;
     if (cf !== 'all' && c.posteCat !== cf) return false;
+    if (search && !(c.nom || '').toLowerCase().includes(search)) return false;
     return true;
   });
   const container = document.getElementById('candidatures-list');
@@ -287,11 +376,14 @@ function renderCandidaturesRH() {
     const card = document.createElement('div');
     card.className = 'cand-card';
     card.innerHTML = `
-      <div class="cand-avatar">${c.prenom[0]}${c.nom[0]}</div>
+      <div class="cand-avatar">${c.nom[0]}${c.prenom[0]}</div>
       <div class="cand-info">
-        <div class="cand-name">${esc(c.prenom)} ${esc(c.nom)}</div>
+        <div class="cand-name">
+          <span class="discord-pill">Discord : ${esc(c.nom)}</span>
+        </div>
         <div class="cand-meta">
           <span>RP : <strong>${esc(c.rp)}</strong></span>
+          <span>ID Roblox : <strong>${esc(c.prenom)}</strong></span>
           <span>${esc(c.posteNom)}</span>
           <span class="cat-badge cat-${c.posteCat}">${esc(c.posteCat)}</span>
         </div>
@@ -340,6 +432,7 @@ function renderPostesRH() {
 async function togglePoste(p) {
   const newVal = p.ouvert === false;
   await db.collection('postes').doc(p.id).update({ ouvert: newVal });
+  logAction('Poste', `${newVal ? 'Ouverture' : 'Fermeture'} du poste "${p.nom}"`);
   toast(newVal ? '✓ Poste ouvert' : 'Poste fermé', 'success');
 }
 
@@ -377,8 +470,10 @@ function bindFormPoste() {
     if (!nom || !cat || !desc) return;
     if (editPosteId) {
       await db.collection('postes').doc(editPosteId).update({ nom, cat, desc, prereq, ouvert });
+      logAction('Poste', `Modification du poste "${nom}"`);
     } else {
       await db.collection('postes').add({ nom, cat, desc, prereq, ouvert, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      logAction('Poste', `Création du poste "${nom}"`);
     }
     hide('modal-nouveau-poste');
     toast(editPosteId ? '✓ Poste modifié' : '✓ Poste créé', 'success');
@@ -387,7 +482,9 @@ function bindFormPoste() {
 
 async function deletePoste(id) {
   if (!confirm('Supprimer ce poste ?')) return;
+  const p = postes.find(x => x.id === id);
   await db.collection('postes').doc(id).delete();
+  logAction('Poste', `Suppression du poste "${p ? p.nom : id}"`);
   toast('Poste supprimé', 'success');
 }
 
@@ -401,12 +498,27 @@ function bindDetailModal() {
   });
 }
 
+function bindCopyDiscord() {
+  const btn = document.getElementById('btn-copy-discord');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const text = document.getElementById('detail-discord').textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('✓ Pseudo Discord copié', 'success');
+    } catch {
+      toast('Impossible de copier automatiquement', 'error');
+    }
+  });
+}
+
 function openCandDetail(c) {
   currentCand = c;
   document.getElementById('detail-cat').textContent        = c.posteCat;
   document.getElementById('detail-cat').className          = `modal-tag cat-badge cat-${c.posteCat}`;
   document.getElementById('detail-poste').textContent      = c.posteNom;
-  document.getElementById('detail-nom').textContent        = `${c.prenom} ${c.nom}`;
+  document.getElementById('detail-discord').textContent    = c.nom;
+  document.getElementById('detail-roblox').textContent     = c.prenom;
   document.getElementById('detail-rp').textContent         = c.rp;
   document.getElementById('detail-email').textContent      = c.email;
   document.getElementById('detail-motivation').textContent = c.motiv;
@@ -442,6 +554,8 @@ async function actionCand(c, newStatut) {
   if (newStatut === 'en_charge') await sendMailCharge(updated);
   if (newStatut === 'accepte')   await sendMailAccept(updated);
   if (newStatut === 'refuse')    await sendMailRefuse(updated);
+  const actionLabel = newStatut === 'en_charge' ? 'Prise en charge' : newStatut === 'accepte' ? 'Acceptation' : 'Refus';
+  logAction('Candidature', `${actionLabel} — Discord : ${c.nom} (ID Roblox : ${c.prenom}) — poste "${c.posteNom}"`);
   renderDetailActions(updated);
   toast(
     newStatut === 'en_charge' ? '📧 Email de prise en charge envoyé' :
@@ -465,6 +579,7 @@ function bindConfigForm() {
     config.maintenance = !config.maintenance;
     saveConfig();
     updateMaintenanceBtn();
+    logAction('Maintenance', config.maintenance ? 'Activation du mode maintenance' : 'Désactivation du mode maintenance');
     toast(config.maintenance ? '⚠ Site en maintenance' : '✓ Site remis en ligne', config.maintenance ? 'error' : 'success');
   });
   document.getElementById('btn-save-config').addEventListener('click', () => {
@@ -472,6 +587,7 @@ function bindConfigForm() {
     const newPwd   = val('cfg-password');
     if (newPwd) config.password = newPwd;
     saveConfig();
+    logAction('Configuration', newPwd ? 'Mise à jour de la configuration (email + mot de passe)' : 'Mise à jour de la configuration (email)');
     const ok = document.getElementById('config-success');
     ok.style.display = '';
     setTimeout(() => ok.style.display = 'none', 3000);
@@ -497,7 +613,7 @@ async function fsSend(to, subject, body) {
 async function sendMailRH(c) {
   if (!config.rhEmail) return;
   await fsSend(config.rhEmail, `[SCP SITE 11] Nouvelle candidature — ${c.posteNom}`,
-    `Nouvelle candidature sur SCP SITE 11.\n\nPoste : ${c.posteNom} (${c.posteCat})\nCandidat : ${c.prenom} ${c.nom}\nRP : ${c.rp}\nEmail : ${c.email}\nDate : ${c.date}\n\nMOTIVATION :\n${c.motiv}\n\nCV : ${c.cv||'Non fourni'}\n\nINFOS SUPP. :\n${c.extra||'Aucune'}`);
+    `Nouvelle candidature sur SCP SITE 11.\n\nPoste : ${c.posteNom} (${c.posteCat})\nDiscord : ${c.nom}\nID Roblox : ${c.prenom}\nRP : ${c.rp}\nEmail : ${c.email}\nDate : ${c.date}\n\nMOTIVATION :\n${c.motiv}\n\nCV : ${c.cv||'Non fourni'}\n\nINFOS SUPP. :\n${c.extra||'Aucune'}`);
 }
 async function sendMailAccuse(c) {
   await fsSend(c.email, `[SCP SITE 11] Candidature reçue — ${c.posteNom}`,
