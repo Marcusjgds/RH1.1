@@ -139,10 +139,16 @@ function listenCandidatures() {
 }
 
 function listenLogs() {
-  db.collection('logs').orderBy('createdAt', 'desc').limit(300).onSnapshot(snap => {
-    logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (document.getElementById('rh-dashboard').style.display !== 'none') renderLogsRH();
-  });
+  db.collection('logs').orderBy('createdAt', 'desc').limit(300).onSnapshot(
+    snap => {
+      logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (document.getElementById('rh-dashboard').style.display !== 'none') renderLogsRH();
+    },
+    err => {
+      console.error('[Listen logs] ❌', err);
+      toast('⚠ Impossible de lire les logs : ' + (err.message || err), 'error');
+    }
+  );
 }
 
 function updateStats() {
@@ -165,7 +171,10 @@ async function logAction(type, details = '') {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       dateStr: new Date().toLocaleString('fr-FR'),
     });
-  } catch (err) { console.error('[Log] ❌', err); }
+  } catch (err) {
+    console.error('[Log] ❌', err);
+    toast('⚠ Log non enregistré : ' + (err.message || err), 'error');
+  }
 }
 
 function bindLogFilter() {
