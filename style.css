@@ -639,3 +639,77 @@ footer p { color: var(--text3); font-size: 11px; font-weight: 600; letter-spacin
   .section-header-row { flex-direction: column; align-items: flex-start; }
   .postes-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   AJOUTS — LOGS RH + PSEUDO DISCORD
+   ============================================================ */
+
+.rh-connected-as {
+  font-size: 11px; color: var(--text3); font-weight: 600;
+  letter-spacing: 0.04em; margin-left: 8px; margin-right: 4px;
+}
+
+.rh-filters input[type="text"] {
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--white); font-family: var(--font);
+  font-size: 12px; font-weight: 500;
+  padding: 7px 12px; border-radius: var(--r);
+  outline: none; min-width: 200px;
+}
+.rh-filters input[type="text"]::placeholder { color: var(--text3); }
+.rh-filters input[type="text"]:focus { border-color: rgba(212,168,67,0.5); }
+
+/* Pastille Discord bien visible sur les cartes de candidature */
+.discord-pill {
+  display: inline-block;
+  font-weight: 800; font-size: 13px;
+  letter-spacing: 0.02em; text-transform: none;
+  color: var(--white);
+  background: rgba(88,101,242,0.14);
+  border: 1px solid rgba(88,101,242,0.35);
+  padding: 4px 10px; border-radius: 6px;
+}
+
+/* Bloc Discord dans le détail de candidature */
+.discord-block { border-bottom: 1px solid var(--border); padding-bottom: 14px; }
+.discord-row { display: flex; align-items: center; gap: 10px; }
+.discord-val { font-size: 15px; font-weight: 800; color: var(--white); }
+.btn-copy {
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text2); font-family: var(--font);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 5px 10px; border-radius: var(--r);
+  cursor: pointer; transition: all .2s;
+}
+.btn-copy:hover { border-color: rgba(212,168,67,0.5); color: var(--gold); }
+
+/* ===================== JOURNAL D'ACTIVITÉ (LOGS) ===================== */
+.logs-list { display: flex; flex-direction: column; gap: 6px; }
+.log-entry {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 12px 16px;
+  display: flex; align-items: flex-start; gap: 14px;
+}
+.log-body { flex: 1; min-width: 0; }
+.log-details { font-size: 12.5px; color: var(--text); font-weight: 500; line-height: 1.5; }
+.log-meta { font-size: 11px; color: var(--text3); margin-top: 4px; }
+.log-meta strong { color: var(--gold); font-weight: 700; }
+
+.log-type {
+  flex-shrink: 0; font-size: 9px; font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 4px; margin-top: 2px;
+  font-family: var(--font);
+}
+.log-type-connexion     { background: rgba(212,168,67,0.12); color: var(--gold); border: 1px solid rgba(212,168,67,0.22); }
+.log-type-candidature   { background: rgba(58,138,90,0.15);  color: #5ab87a; border: 1px solid rgba(58,138,90,0.25); }
+.log-type-poste         { background: rgba(26,42,94,0.3);    color: #6080cc; border: 1px solid rgba(26,42,94,0.5); }
+.log-type-maintenance   { background: rgba(192,128,48,0.12); color: #d09050; border: 1px solid rgba(192,128,48,0.22); }
+.log-type-configuration { background: rgba(192,64,64,0.12);  color: #e07070; border: 1px solid rgba(192,64,64,0.22); }
+
+@media (max-width: 640px) {
+  .rh-filters { flex-wrap: wrap; }
+  .rh-filters input[type="text"] { min-width: 0; width: 100%; }
+  .rh-connected-as { display: none; }
+}
