@@ -162,10 +162,10 @@ function updateStats() {
 /* ============================================================
    LOGS D'ACTIVITÉ RH
    ============================================================ */
-async function logAction(type, details = '') {
+async function logAction(type, details = '', actor = null) {
   try {
     await db.collection('logs').add({
-      rh: currentRHName || 'Inconnu',
+      rh: actor || currentRHName || 'Inconnu',
       type,
       details,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -194,10 +194,14 @@ function renderLogsRH() {
   list.forEach(l => {
     const row = document.createElement('div');
     row.className = 'log-entry';
+    const highlighted = esc(l.details || '').replace(
+      /Discord\s*:\s*([^\s(—][^(—]*)/i,
+      (m, name) => `Discord : <span class="log-discord">${name.trim()}</span>`
+    );
     row.innerHTML = `
       <span class="log-type log-type-${slugType(l.type)}">${esc(l.type)}</span>
       <div class="log-body">
-        <div class="log-details">${esc(l.details || '')}</div>
+        <div class="log-details">${highlighted}</div>
         <div class="log-meta"><strong>${esc(l.rh || 'Inconnu')}</strong> — ${esc(l.dateStr || '')}</div>
       </div>
     `;
@@ -288,6 +292,7 @@ function bindFormCandidature() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     await db.collection('candidatures').add(cand);
+    logAction('Candidature', `Nouvelle candidature — Discord : ${nom} (ID Roblox : ${prenom}) — poste "${currentPoste.nom}"`, 'Candidat (soumission publique)');
     await sendMailRH(cand);
     await sendMailAccuse(cand);
     setBtnLoading(false);
