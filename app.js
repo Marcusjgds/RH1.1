@@ -25,6 +25,16 @@ let editPosteId  = null;
 let db           = null;
 let currentRHName = sessionStorage.getItem(RH_NAME_KEY) || '';
 
+/* ── DEBUG : affiche les erreurs directement à l'écran (utile sans F12) ── */
+window.addEventListener('error', (e) => {
+  toast('⚠ Erreur JS : ' + (e.message || 'inconnue'), 'error');
+  console.error('[Erreur globale]', e.error || e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  toast('⚠ Erreur async : ' + (e.reason?.message || e.reason || 'inconnue'), 'error');
+  console.error('[Promesse rejetée]', e.reason);
+});
+
 /* ── INIT ── */
 window.addEventListener('load', () => {
   firebase.initializeApp(FIREBASE_CONFIG);
@@ -303,8 +313,13 @@ function bindRHLogin() {
       currentRHName = name;
       sessionStorage.setItem(RH_NAME_KEY, name);
       hide('modal-rh-login');
-      openDashboard();
-      logAction('Connexion', 'Connexion à l\'espace RH');
+      try {
+        openDashboard();
+        logAction('Connexion', 'Connexion à l\'espace RH');
+      } catch (err) {
+        console.error('[Connexion RH] ❌', err);
+        toast('⚠ Échec ouverture dashboard : ' + (err.message || err), 'error');
+      }
     } else {
       document.getElementById('login-error').textContent = 'Mot de passe incorrect.';
       document.getElementById('login-error').style.display = '';
@@ -336,8 +351,13 @@ function closeDashboard() {
 }
 
 document.getElementById('btn-logout').addEventListener('click', () => {
-  logAction('Connexion', 'Déconnexion de l\'espace RH');
-  closeDashboard();
+  try {
+    logAction('Connexion', 'Déconnexion de l\'espace RH');
+    closeDashboard();
+  } catch (err) {
+    console.error('[Déconnexion RH] ❌', err);
+    toast('⚠ Échec déconnexion : ' + (err.message || err), 'error');
+  }
 });
 
 function bindRHTabs() {
@@ -431,9 +451,14 @@ function renderPostesRH() {
 
 async function togglePoste(p) {
   const newVal = p.ouvert === false;
-  await db.collection('postes').doc(p.id).update({ ouvert: newVal });
-  logAction('Poste', `${newVal ? 'Ouverture' : 'Fermeture'} du poste "${p.nom}"`);
-  toast(newVal ? '✓ Poste ouvert' : 'Poste fermé', 'success');
+  try {
+    await db.collection('postes').doc(p.id).update({ ouvert: newVal });
+    logAction('Poste', `${newVal ? 'Ouverture' : 'Fermeture'} du poste "${p.nom}"`);
+    toast(newVal ? '✓ Poste ouvert' : 'Poste fermé', 'success');
+  } catch (err) {
+    console.error('[Toggle poste] ❌', err);
+    toast('⚠ Échec : ' + (err.message || err), 'error');
+  }
 }
 
 document.getElementById('btn-nouveau-poste').addEventListener('click', () => {
