@@ -714,10 +714,36 @@ footer p { color: var(--text3); font-size: 11px; font-weight: 600; letter-spacin
   .rh-connected-as { display: none; }
 }
 
-.log-discord {
-  color: var(--gold);
-  font-weight: 800;
-  background: rgba(212,168,67,0.1);
-  padding: 1px 6px;
-  border-radius: 4px;
+/* ===================== CONNEXION DISCORD ===================== */
+.discord-connect-row { display: flex; gap: 8px; align-items: stretch; }
+.discord-connect-row input {
+  flex: 1; background: var(--bg4); color: var(--text2);
+  cursor: not-allowed;
+}
+.btn-discord-connect {
+  flex-shrink: 0; background: #5865F2; color: #fff;
+  border: none; font-family: var(--font);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 14px; border-radius: var(--r);
+  cursor: pointer; transition: background .2s;
+  white-space: nowrap;
+}
+.btn-discord-connect:hover { background: #4752c4; }
+.discord-status {
+  display: block; margin-top: 6px; font-size: 11px;
+  color: var(--text3); font-weight: 600;
+}
+.discord-status.verified { color: #5ab87a; }
+
+.discord-verified-badge {
+  font-size: 9px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 4px;
+}
+.discord-verified-badge.verified   { background: rgba(58,138,90,0.15);  color: #5ab87a; border: 1px solid rgba(58,138,90,0.3); }
+.discord-verified-badge.unverified { background: rgba(192,128,48,0.12); color: #d09050; border: 1px solid rgba(192,128,48,0.3); }
+
+@media (max-width: 640px) {
+  .discord-connect-row { flex-direction: column; }
 }
