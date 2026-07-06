@@ -15,6 +15,17 @@ const FORMSUBMIT_URL  = (e) => `https://formsubmit.co/ajax/${encodeURIComponent(
 const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', maintenance: false };
 const RH_NAME_KEY      = 'rh_name';
 
+/* ── DISCORD OAUTH2 (flux implicite, 100% côté client) ──
+   1. Crée une application sur https://discord.com/developers/applications
+   2. Onglet OAuth2 → General → copie le "CLIENT ID" et colle-le ci-dessous
+   3. Onglet OAuth2 → Redirects → ajoute EXACTEMENT l'URL de ton site
+      (celle utilisée par DISCORD_REDIRECT_URI, ex: https://tonsite.up.railway.app/)
+*/
+const DISCORD_CLIENT_ID    = 'REMPLACE_PAR_TON_CLIENT_ID';
+const DISCORD_REDIRECT_URI = window.location.origin + '/';
+
+let discordUser = null; // { id, username } une fois vérifié
+
 let config       = loadConfig();
 let postes       = [];
 let candidatures = [];
@@ -55,6 +66,8 @@ window.addEventListener('load', () => {
   listenPostes();
   listenCandidatures();
   listenLogs();
+  bindDiscordConnect();
+  handleDiscordRedirect();
 });
 
 /* ============================================================
@@ -265,6 +278,10 @@ function openPostuler(poste) {
   document.getElementById('modal-poste-title').textContent = poste.nom;
   document.getElementById('form-candidature').reset();
   document.getElementById('form-error').style.display = 'none';
+  document.getElementById('f-discord-id').value = '';
+  const statusEl = document.getElementById('discord-status');
+  statusEl.textContent = 'Clique pour vérifier ton compte Discord.';
+  statusEl.className   = 'discord-status';
   show('modal-postuler');
 }
 
@@ -278,27 +295,104 @@ function bindFormCandidature() {
     e.preventDefault();
     const prenom = val('f-prenom'), nom = val('f-nom'), rp = val('f-rp'),
           email  = val('f-email'), motiv = val('f-motivation'),
-          cv     = val('f-cv'),   extra = val('f-extra');
-    if (!prenom || !nom || !rp || !email || !motiv) {
+          cv     = val('f-cv'),   extra = val('f-extra'),
+          discordId = val('f-discord-id');
+    if (!prenom || !rp || !email || !motiv) {
       showFormError('form-error', 'Merci de remplir tous les champs obligatoires.'); return;
+    }
+    if (!nom || !discordId) {
+      showFormError('form-error', 'Merci de te connecter avec Discord avant d\'envoyer ta candidature.'); return;
     }
     if (!emailValid(email)) { showFormError('form-error', 'Adresse email invalide.'); return; }
     setBtnLoading(true);
     const cand = {
       posteId: currentPoste.id, posteNom: currentPoste.nom, posteCat: currentPoste.cat,
-      prenom, nom, rp, email, motiv, cv: cv||'', extra: extra||'',
+      prenom, nom, discordId, rp, email, motiv, cv: cv||'', extra: extra||'',
       statut: 'en_attente',
       date: new Date().toLocaleDateString('fr-FR'),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     await db.collection('candidatures').add(cand);
-    logAction('Candidature', `Nouvelle candidature — Discord : ${nom} (ID Roblox : ${prenom}) — poste "${currentPoste.nom}"`, 'Candidat (soumission publique)');
+    logAction('Candidature', `Nouvelle candidature — Discord : ${nom} (vérifié, ID Roblox : ${prenom}) — poste "${currentPoste.nom}"`, 'Candidat (soumission publique)');
     await sendMailRH(cand);
     await sendMailAccuse(cand);
     setBtnLoading(false);
     hide('modal-postuler');
     toast('✓ Candidature envoyée avec succès !', 'success');
   });
+}
+
+function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v || ''; }
+
+function bindDiscordConnect() {
+  const btn = document.getElementById('btn-discord-connect');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    if (!currentPoste) { toast('Sélectionne d\'abord un poste.', 'error'); return; }
+    if (!DISCORD_CLIENT_ID || DISCORD_CLIENT_ID === 'REMPLACE_PAR_TON_CLIENT_ID') {
+      toast('⚠ Connexion Discord non configurée (CLIENT_ID manquant dans app.js)', 'error');
+      return;
+    }
+    const draft = {
+      posteId: currentPoste.id, posteNom: currentPoste.nom, posteCat: currentPoste.cat,
+      prenom: val('f-prenom'), rp: val('f-rp'), email: val('f-email'),
+      motiv: val('f-motivation'), cv: val('f-cv'), extra: val('f-extra'),
+    };
+    sessionStorage.setItem('cand_draft', JSON.stringify(draft));
+    const state = Math.random().toString(36).slice(2) + Date.now();
+    sessionStorage.setItem('discord_oauth_state', state);
+    const authUrl = `https://discord.com/oauth2/authorize?response_type=token`
+      + `&client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}`
+      + `&redirect_uri=${encodeURIComponent(DISCORD_REDIRECT_URI)}`
+      + `&scope=identify&state=${state}`;
+    window.location.href = authUrl;
+  });
+}
+
+function handleDiscordRedirect() {
+  if (!window.location.hash.includes('access_token')) return;
+  const params     = new URLSearchParams(window.location.hash.slice(1));
+  const token      = params.get('access_token');
+  const state      = params.get('state');
+  const savedState = sessionStorage.getItem('discord_oauth_state');
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+  if (!token || !state || state !== savedState) {
+    toast('⚠ Connexion Discord invalide ou expirée, réessaie.', 'error');
+    return;
+  }
+  sessionStorage.removeItem('discord_oauth_state');
+
+  fetch('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => { if (!r.ok) throw new Error('Réponse Discord invalide'); return r.json(); })
+    .then(user => {
+      const username = user.global_name || user.username;
+      discordUser = { id: user.id, username };
+
+      const draftRaw = sessionStorage.getItem('cand_draft');
+      if (draftRaw) {
+        const draft = JSON.parse(draftRaw);
+        currentPoste = { id: draft.posteId, nom: draft.posteNom, cat: draft.posteCat };
+        document.getElementById('modal-poste-title').textContent = draft.posteNom;
+        setVal('f-prenom', draft.prenom);
+        setVal('f-rp', draft.rp);
+        setVal('f-email', draft.email);
+        setVal('f-motivation', draft.motiv);
+        setVal('f-cv', draft.cv);
+        setVal('f-extra', draft.extra);
+        sessionStorage.removeItem('cand_draft');
+      }
+      setVal('f-nom', username);
+      setVal('f-discord-id', user.id);
+      const statusEl = document.getElementById('discord-status');
+      statusEl.textContent = `✓ Connecté en tant que ${username}`;
+      statusEl.className   = 'discord-status verified';
+      show('modal-postuler');
+      toast('✓ Compte Discord vérifié', 'success');
+    })
+    .catch(err => {
+      console.error('[Discord OAuth] ❌', err);
+      toast('⚠ Impossible de récupérer les infos Discord : ' + err.message, 'error');
+    });
 }
 
 function setBtnLoading(l) {
@@ -557,6 +651,14 @@ function openCandDetail(c) {
   document.getElementById('detail-cat').className          = `modal-tag cat-badge cat-${c.posteCat}`;
   document.getElementById('detail-poste').textContent      = c.posteNom;
   document.getElementById('detail-discord').textContent    = c.nom;
+  const badgeEl = document.getElementById('detail-discord-verified');
+  if (c.discordId) {
+    badgeEl.textContent = '✓ Vérifié';
+    badgeEl.className   = 'discord-verified-badge verified';
+  } else {
+    badgeEl.textContent = '⚠ Non vérifié';
+    badgeEl.className   = 'discord-verified-badge unverified';
+  }
   document.getElementById('detail-roblox').textContent     = c.prenom;
   document.getElementById('detail-rp').textContent         = c.rp;
   document.getElementById('detail-email').textContent      = c.email;
@@ -652,7 +754,7 @@ async function fsSend(to, subject, body) {
 async function sendMailRH(c) {
   if (!config.rhEmail) return;
   await fsSend(config.rhEmail, `[SCP SITE 11] Nouvelle candidature — ${c.posteNom}`,
-    `Nouvelle candidature sur SCP SITE 11.\n\nPoste : ${c.posteNom} (${c.posteCat})\nDiscord : ${c.nom}\nID Roblox : ${c.prenom}\nRP : ${c.rp}\nEmail : ${c.email}\nDate : ${c.date}\n\nMOTIVATION :\n${c.motiv}\n\nCV : ${c.cv||'Non fourni'}\n\nINFOS SUPP. :\n${c.extra||'Aucune'}`);
+    `Nouvelle candidature sur SCP SITE 11.\n\nPoste : ${c.posteNom} (${c.posteCat})\nDiscord : ${c.nom}${c.discordId ? ` (ID vérifié : ${c.discordId})` : ' (non vérifié)'}\nID Roblox : ${c.prenom}\nRP : ${c.rp}\nEmail : ${c.email}\nDate : ${c.date}\n\nMOTIVATION :\n${c.motiv}\n\nCV : ${c.cv||'Non fourni'}\n\nINFOS SUPP. :\n${c.extra||'Aucune'}`);
 }
 async function sendMailAccuse(c) {
   await fsSend(c.email, `[SCP SITE 11] Candidature reçue — ${c.posteNom}`,
