@@ -112,7 +112,15 @@
     <form id="form-candidature" novalidate>
       <div class="form-row">
         <div class="field"><label>ID roblox</label><input type="text" id="f-prenom" placeholder="ID roblox" required /></div>
-        <div class="field"><label>Pseudo Discord</label><input type="text" id="f-nom" placeholder="Pseudo Discord" required /></div>
+        <div class="field">
+          <label>Compte Discord</label>
+          <div class="discord-connect-row">
+            <input type="text" id="f-nom" placeholder="Non connecté" readonly />
+            <button type="button" class="btn-discord-connect" id="btn-discord-connect">Se connecter avec Discord</button>
+          </div>
+          <input type="hidden" id="f-discord-id" />
+          <small id="discord-status" class="discord-status">Clique pour vérifier ton compte Discord.</small>
+        </div>
       </div>
       <div class="field"><label>Pseudo RP</label><input type="text" id="f-rp" placeholder="Ton pseudo en jeu" required /></div>
       <div class="field"><label>Adresse mail</label><input type="email" id="f-email" placeholder="exemple@mail.com" required /></div>
@@ -290,6 +298,7 @@
           <span class="detail-label">Pseudo Discord</span>
           <div class="discord-row">
             <span class="detail-val discord-val" id="detail-discord"></span>
+            <span class="discord-verified-badge" id="detail-discord-verified"></span>
             <button class="btn-copy" id="btn-copy-discord" title="Copier le pseudo Discord">Copier</button>
           </div>
         </div>
@@ -317,6 +326,6 @@
   </div>
 </footer>
 
-<script src="app.js?v=2"></script>
+<script src="app.js"></script>
 </body>
 </html>
