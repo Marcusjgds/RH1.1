@@ -87,15 +87,11 @@
   </div>
   <div class="section-header-row">
     <h2>Postes<br/>ouverts</h2>
-    <div class="filters">
+    <div class="filters" id="filters-container">
       <button class="filter-btn active" data-cat="all">Tous</button>
-      <button class="filter-btn" data-cat="WL">WL</button>
-      <button class="filter-btn" data-cat="STAFF">STAFF</button>
-      <button class="filter-btn" data-cat="ANIMATION">ANIMATION</button>
-      <button class="filter-btn" data-cat="DÉVELOPPEMENT">DÉVELOPPEMENT</button>
     </div>
   </div>
-  <div class="postes-grid" id="postes-grid"></div>
+  <div class="postes-container" id="postes-container"></div>
   <div class="empty-state" id="empty-postes" style="display:none">
     <p>Aucun poste disponible pour le moment.</p>
   </div>
@@ -161,10 +157,11 @@
       <span>RH — SCP SITE 11</span>
     </div>
     <div class="rh-nav">
-      <button class="rh-tab active" data-tab="candidatures">Candidatures</button>
+      <button class="rh-tab active" data-tab="candidatures" data-perm="viewCandidatures">Candidatures</button>
       <button class="rh-tab" data-tab="postes">Postes</button>
-      <button class="rh-tab" data-tab="logs">Logs</button>
-      <button class="rh-tab" data-tab="config">Configuration</button>
+      <button class="rh-tab admin-only" data-tab="categories">Catégories</button>
+      <button class="rh-tab admin-only" data-tab="logs">Logs</button>
+      <button class="rh-tab admin-only" data-tab="config">Configuration</button>
       <span class="rh-connected-as" id="rh-connected-as"></span>
       <button class="btn-ghost" id="btn-logout">Déconnexion</button>
     </div>
@@ -184,10 +181,6 @@
         </select>
         <select id="filter-cat-cand">
           <option value="all">Toutes catégories</option>
-          <option value="WL">WL</option>
-          <option value="STAFF">STAFF</option>
-          <option value="ANIMATION">ANIMATION</option>
-          <option value="DÉVELOPPEMENT">DÉVELOPPEMENT</option>
         </select>
       </div>
     </div>
@@ -198,9 +191,21 @@
   <div class="rh-content" id="tab-postes" style="display:none">
     <div class="rh-section-header">
       <h2>Gérer les postes</h2>
-      <button class="btn-primary" id="btn-nouveau-poste">+ Nouveau poste</button>
+      <button class="btn-primary admin-only" id="btn-nouveau-poste">+ Nouveau poste</button>
     </div>
     <div class="postes-rh-list" id="postes-rh-list"></div>
+  </div>
+
+  <div class="rh-content" id="tab-categories" style="display:none">
+    <div class="rh-section-header">
+      <h2>Gérer les catégories</h2>
+    </div>
+    <form id="form-categorie" class="cat-form" novalidate>
+      <input type="color" id="cat-color" value="#5ab87a" />
+      <input type="text" id="cat-nom" placeholder="Nom de la catégorie (ex: STAFF)" required />
+      <button type="submit" class="btn-primary">+ Ajouter</button>
+    </form>
+    <div class="categories-list" id="categories-list"></div>
   </div>
 
   <div class="rh-content" id="tab-logs" style="display:none">
@@ -234,6 +239,20 @@
         <input type="password" id="cfg-password" placeholder="Laisse vide pour ne pas changer" />
         <small>Laisse vide pour conserver l'actuel</small>
       </div>
+      <div class="field">
+        <label>Nouveau mot de passe Admin</label>
+        <input type="password" id="cfg-admin-password" placeholder="Laisse vide pour ne pas changer" />
+        <small>Donne accès aux Catégories, Logs, Config et à la gestion complète des postes</small>
+      </div>
+      <div class="config-separator"></div>
+      <div class="field">
+        <label>Permissions des RH</label>
+        <div class="perm-row">
+          <label class="perm-check"><input type="checkbox" id="perm-view-cand" /> Voir les candidatures</label>
+          <label class="perm-check"><input type="checkbox" id="perm-action-cand" /> Accepter / Refuser une candidature</label>
+        </div>
+        <small>Les RH peuvent toujours ouvrir/fermer un poste, mais jamais en créer, modifier ou supprimer.</small>
+      </div>
       <div class="config-separator"></div>
       <div class="field">
         <label>Mode maintenance</label>
@@ -264,10 +283,6 @@
         <label>Catégorie</label>
         <select id="poste-cat" required>
           <option value="">Choisir...</option>
-          <option value="WL">WL</option>
-          <option value="STAFF">STAFF</option>
-          <option value="ANIMATION">ANIMATION</option>
-          <option value="DÉVELOPPEMENT">DÉVELOPPEMENT</option>
         </select>
       </div>
       <div class="field"><label>Description</label><textarea id="poste-desc" rows="4" placeholder="Décris le rôle et les missions..." required></textarea></div>
