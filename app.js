@@ -12,8 +12,10 @@ const FIREBASE_CONFIG = {
 };
 
 const FORMSUBMIT_URL  = (e) => `https://formsubmit.co/ajax/${encodeURIComponent(e)}`;
-const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', maintenance: false };
+const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', adminPassword: 'admin2025', maintenance: false };
 const RH_NAME_KEY      = 'rh_name';
+const RH_ROLE_KEY      = 'rh_role';
+const DEFAULT_PERMISSIONS = { viewCandidatures: true, actionCandidatures: true };
 
 /* ── DISCORD OAUTH2 (flux implicite, 100% côté client) ──
    1. Crée une application sur https://discord.com/developers/applications
@@ -30,11 +32,15 @@ let config       = loadConfig();
 let postes       = [];
 let candidatures = [];
 let logs         = [];
+let categories   = [];
+let rhPermissions = { ...DEFAULT_PERMISSIONS };
 let currentPoste = null;
 let currentCand  = null;
 let editPosteId  = null;
+let editCatId    = null;
 let db           = null;
 let currentRHName = sessionStorage.getItem(RH_NAME_KEY) || '';
+let currentRole    = sessionStorage.getItem(RH_ROLE_KEY) || ''; // 'admin' | 'rh'
 
 /* ── DEBUG : affiche les erreurs directement à l'écran (utile sans F12) ── */
 window.addEventListener('error', (e) => {
@@ -66,7 +72,10 @@ window.addEventListener('load', () => {
   listenPostes();
   listenCandidatures();
   listenLogs();
+  listenCategories();
+  listenPermissions();
   bindDiscordConnect();
+  bindCategorieForm();
   handleDiscordRedirect();
 });
 
@@ -164,12 +173,171 @@ function listenLogs() {
   );
 }
 
+function listenCategories() {
+  db.collection('categories').orderBy('createdAt', 'asc').onSnapshot(
+    snap => {
+      categories = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      populateCategorySelects();
+      renderCategoriesRH();
+      const cat = document.querySelector('.filter-btn.active')?.dataset.cat || 'all';
+      renderPostesPublic(cat);
+      if (document.getElementById('rh-dashboard').style.display !== 'none') {
+        renderPostesRH();
+        renderCandidaturesRH();
+      }
+    },
+    err => {
+      console.error('[Listen categories] ❌', err);
+      toast('⚠ Impossible de lire les catégories : ' + (err.message || err), 'error');
+    }
+  );
+}
+
+function listenPermissions() {
+  db.collection('meta').doc('rhPermissions').onSnapshot(
+    doc => {
+      rhPermissions = doc.exists ? { ...DEFAULT_PERMISSIONS, ...doc.data() } : { ...DEFAULT_PERMISSIONS };
+      applyRolePermissions();
+    },
+    err => {
+      console.error('[Listen permissions] ❌', err);
+    }
+  );
+}
+
 function updateStats() {
   const openPostes = postes.filter(p => p.ouvert !== false).length;
   const s1 = document.getElementById('stat-postes');
   const s2 = document.getElementById('stat-cands');
   if (s1) s1.textContent = openPostes;
   if (s2) s2.textContent = candidatures.length;
+}
+
+/* ============================================================
+   CATÉGORIES DYNAMIQUES
+   ============================================================ */
+function getCategory(nom) { return categories.find(c => c.nom === nom); }
+function getCategoryColor(nom) { return getCategory(nom)?.color || '#8a8a8a'; }
+
+function hexToRgba(hex, alpha) {
+  const h = (hex || '#8a8a8a').replace('#', '');
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const r = parseInt(full.substring(0, 2), 16) || 0;
+  const g = parseInt(full.substring(2, 4), 16) || 0;
+  const b = parseInt(full.substring(4, 6), 16) || 0;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function catBadgeHtml(nom) {
+  const color = getCategoryColor(nom);
+  const style = `background:${hexToRgba(color,0.14)};color:${color};border:1px solid ${hexToRgba(color,0.35)}`;
+  return `<span class="cat-badge" style="${style}">${esc(nom || '—')}</span>`;
+}
+
+function populateCategorySelects() {
+  const posteSelect = document.getElementById('poste-cat');
+  const filterSelect = document.getElementById('filter-cat-cand');
+  if (posteSelect) {
+    const current = posteSelect.value;
+    posteSelect.innerHTML = '<option value="">Choisir...</option>' +
+      categories.map(c => `<option value="${esc(c.nom)}">${esc(c.nom)}</option>`).join('');
+    if (current) posteSelect.value = current;
+  }
+  if (filterSelect) {
+    const current = filterSelect.value;
+    filterSelect.innerHTML = '<option value="all">Toutes catégories</option>' +
+      categories.map(c => `<option value="${esc(c.nom)}">${esc(c.nom)}</option>`).join('');
+    filterSelect.value = current || 'all';
+  }
+  const filtersContainer = document.getElementById('filters-container');
+  if (filtersContainer) {
+    const activeCat = filtersContainer.querySelector('.filter-btn.active')?.dataset.cat || 'all';
+    filtersContainer.innerHTML = '<button class="filter-btn" data-cat="all">Tous</button>' +
+      categories.map(c => `<button class="filter-btn" data-cat="${esc(c.nom)}" style="--pill-color:${c.color}">${esc(c.nom)}</button>`).join('');
+    const toActivate = filtersContainer.querySelector(`[data-cat="${CSS.escape(activeCat)}"]`) || filtersContainer.querySelector('[data-cat="all"]');
+    toActivate.classList.add('active');
+    bindFilters();
+  }
+}
+
+function bindCategorieForm() {
+  const form = document.getElementById('form-categorie');
+  if (!form) return;
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const nom   = val('cat-nom');
+    const color = document.getElementById('cat-color').value;
+    if (!nom) return;
+    if (editCatId) {
+      await db.collection('categories').doc(editCatId).update({ nom, color });
+      logAction('Catégorie', `Modification de la catégorie "${nom}"`);
+      editCatId = null;
+      form.querySelector('button[type="submit"]').textContent = '+ Ajouter';
+    } else {
+      await db.collection('categories').add({ nom, color, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+      logAction('Catégorie', `Création de la catégorie "${nom}"`);
+    }
+    form.reset();
+    document.getElementById('cat-color').value = '#5ab87a';
+    toast('✓ Catégorie enregistrée', 'success');
+  });
+}
+
+function renderCategoriesRH() {
+  const container = document.getElementById('categories-list');
+  if (!container) return;
+  container.innerHTML = '';
+  if (categories.length === 0) { container.innerHTML = '<div class="empty-state"><p>Aucune catégorie créée.</p></div>'; return; }
+  categories.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.innerHTML = `
+      <span class="cat-swatch" style="background:${c.color}"></span>
+      <span class="cat-row-nom">${esc(c.nom)}</span>
+      <div class="cat-row-actions">
+        <button class="btn-sm" data-edit-cat="${c.id}">Modifier</button>
+        <button class="btn-sm danger" data-del-cat="${c.id}">Supprimer</button>
+      </div>
+    `;
+    row.querySelector('[data-edit-cat]').addEventListener('click', () => {
+      editCatId = c.id;
+      document.getElementById('cat-nom').value   = c.nom;
+      document.getElementById('cat-color').value = c.color;
+      document.querySelector('#form-categorie button[type="submit"]').textContent = 'Enregistrer';
+    });
+    row.querySelector('[data-del-cat]').addEventListener('click', async () => {
+      if (!confirm(`Supprimer la catégorie "${c.nom}" ? Les postes existants garderont ce nom mais perdront la couleur associée.`)) return;
+      await db.collection('categories').doc(c.id).delete();
+      logAction('Catégorie', `Suppression de la catégorie "${c.nom}"`);
+      toast('Catégorie supprimée', 'success');
+    });
+    container.appendChild(row);
+  });
+}
+
+/* ============================================================
+   RÔLES & PERMISSIONS (ADMIN / RH)
+   ============================================================ */
+function applyRolePermissions() {
+  const isAdmin = currentRole === 'admin';
+  document.querySelectorAll('.admin-only').forEach(el => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+  const candTab = document.querySelector('.rh-tab[data-tab="candidatures"]');
+  if (candTab) candTab.style.display = (isAdmin || rhPermissions.viewCandidatures) ? '' : 'none';
+
+  const nouveauPosteBtn = document.getElementById('btn-nouveau-poste');
+  if (nouveauPosteBtn) nouveauPosteBtn.style.display = isAdmin ? '' : 'none';
+
+  // Si le RH courant a perdu l'accès à l'onglet actif, on le renvoie vers Postes
+  const activeTab = document.querySelector('.rh-tab.active');
+  if (activeTab && activeTab.style.display === 'none') {
+    document.querySelector('.rh-tab[data-tab="postes"]')?.click();
+  }
+  if (document.getElementById('rh-dashboard').style.display !== 'none') {
+    renderPostesRH();
+    renderCandidaturesRH();
+  }
 }
 
 /* ============================================================
@@ -230,27 +398,51 @@ function slugType(t) {
    POSTES PUBLICS
    ============================================================ */
 function renderPostesPublic(filterCat = 'all') {
-  const grid  = document.getElementById('postes-grid');
-  const empty = document.getElementById('empty-postes');
-  const list  = (filterCat === 'all' ? postes : postes.filter(p => p.cat === filterCat))
-                .filter(p => p.ouvert !== false);
-  grid.innerHTML = '';
+  const container = document.getElementById('postes-container');
+  const empty      = document.getElementById('empty-postes');
+  const openPostes = postes.filter(p => p.ouvert !== false);
+  const list = filterCat === 'all' ? openPostes : openPostes.filter(p => p.cat === filterCat);
+  container.innerHTML = '';
   if (list.length === 0) { empty.style.display = ''; return; }
   empty.style.display = 'none';
-  list.forEach(p => {
-    const card = document.createElement('div');
-    card.className = 'poste-card';
-    card.innerHTML = `
-      <div class="poste-card-top">
-        <div class="poste-nom">${esc(p.nom)}</div>
-        <span class="cat-badge cat-${p.cat}">${esc(p.cat)}</span>
-      </div>
-      <p class="poste-desc">${esc(p.desc)}</p>
-      ${p.prereq ? `<p class="poste-prereq"><strong>Prérequis :</strong> ${esc(p.prereq)}</p>` : ''}
-      <button class="btn-postuler">Postuler →</button>
+
+  // Ordre des catégories : celles créées par l'admin, dans l'ordre, puis "autres" si besoin
+  const catNames = filterCat === 'all'
+    ? [...categories.map(c => c.nom), ...[...new Set(list.map(p => p.cat))].filter(n => !categories.some(c => c.nom === n))]
+    : [filterCat];
+
+  catNames.forEach(catNom => {
+    const postesCat = list.filter(p => p.cat === catNom);
+    if (postesCat.length === 0) return;
+    const color = getCategoryColor(catNom);
+
+    const divider = document.createElement('div');
+    divider.className = 'cat-divider';
+    divider.innerHTML = `
+      <span class="cat-divider-line" style="background:${hexToRgba(color,0.4)}"></span>
+      <span class="cat-divider-label" style="color:${color}">${esc(catNom)}</span>
+      <span class="cat-divider-line" style="background:${hexToRgba(color,0.4)}"></span>
     `;
-    card.querySelector('.btn-postuler').addEventListener('click', () => openPostuler(p));
-    grid.appendChild(card);
+    container.appendChild(divider);
+
+    const grid = document.createElement('div');
+    grid.className = 'postes-grid';
+    postesCat.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'poste-card';
+      card.innerHTML = `
+        <div class="poste-card-top">
+          <div class="poste-nom">${esc(p.nom)}</div>
+          ${catBadgeHtml(p.cat)}
+        </div>
+        <p class="poste-desc">${esc(p.desc)}</p>
+        ${p.prereq ? `<p class="poste-prereq"><strong>Prérequis :</strong> ${esc(p.prereq)}</p>` : ''}
+        <button class="btn-postuler">Postuler →</button>
+      `;
+      card.querySelector('.btn-postuler').addEventListener('click', () => openPostuler(p));
+      grid.appendChild(card);
+    });
+    container.appendChild(grid);
   });
 }
 
@@ -417,9 +609,24 @@ function bindRHLogin() {
       document.getElementById('login-error').style.display = '';
       return;
     }
-    if (val('rh-password') === config.password) {
+    if (val('rh-password') === config.adminPassword) {
       currentRHName = name;
+      currentRole   = 'admin';
       sessionStorage.setItem(RH_NAME_KEY, name);
+      sessionStorage.setItem(RH_ROLE_KEY, 'admin');
+      hide('modal-rh-login');
+      try {
+        openDashboard();
+        logAction('Connexion', 'Connexion à l\'espace Admin');
+      } catch (err) {
+        console.error('[Connexion Admin] ❌', err);
+        toast('⚠ Échec ouverture dashboard : ' + (err.message || err), 'error');
+      }
+    } else if (val('rh-password') === config.password) {
+      currentRHName = name;
+      currentRole   = 'rh';
+      sessionStorage.setItem(RH_NAME_KEY, name);
+      sessionStorage.setItem(RH_ROLE_KEY, 'rh');
       hide('modal-rh-login');
       try {
         openDashboard();
@@ -446,10 +653,12 @@ function openDashboard() {
   document.querySelector('footer').style.display            = 'none';
   document.getElementById('rh-dashboard').style.display     = '';
   const connEl = document.getElementById('rh-connected-as');
-  if (connEl) connEl.textContent = currentRHName ? `Connecté en tant que ${currentRHName}` : '';
+  if (connEl) connEl.textContent = currentRHName ? `Connecté en tant que ${currentRHName} (${currentRole === 'admin' ? 'Admin' : 'RH'})` : '';
+  applyRolePermissions();
   renderCandidaturesRH();
   renderPostesRH();
   renderLogsRH();
+  renderCategoriesRH();
   fillConfigForm();
 }
 
@@ -460,7 +669,9 @@ function closeDashboard() {
 
 document.getElementById('btn-logout').addEventListener('click', () => {
   try {
-    logAction('Connexion', 'Déconnexion de l\'espace RH');
+    logAction('Connexion', `Déconnexion de l'espace ${currentRole === 'admin' ? 'Admin' : 'RH'}`);
+    sessionStorage.removeItem(RH_ROLE_KEY);
+    currentRole = '';
     closeDashboard();
   } catch (err) {
     console.error('[Déconnexion RH] ❌', err);
@@ -476,6 +687,7 @@ function bindRHTabs() {
       document.querySelectorAll('.rh-content').forEach(c => c.style.display = 'none');
       document.getElementById(`tab-${tab.dataset.tab}`).style.display = '';
       if (tab.dataset.tab === 'logs') renderLogsRH();
+      if (tab.dataset.tab === 'categories') renderCategoriesRH();
     });
   });
 }
@@ -486,6 +698,15 @@ function bindCandSearch() {
 }
 
 function renderCandidaturesRH() {
+  const container = document.getElementById('candidatures-list');
+  const empty     = document.getElementById('empty-cands');
+  if (currentRole === 'rh' && !rhPermissions.viewCandidatures) {
+    container.innerHTML = '';
+    empty.style.display = '';
+    empty.querySelector('p').textContent = 'Tu n\'as pas la permission de voir les candidatures.';
+    return;
+  }
+  empty.querySelector('p').textContent = 'Aucune candidature reçue.';
   const sf = document.getElementById('filter-status').value;
   const cf = document.getElementById('filter-cat-cand').value;
   const search = (document.getElementById('search-discord')?.value || '').trim().toLowerCase();
@@ -495,8 +716,6 @@ function renderCandidaturesRH() {
     if (search && !(c.nom || '').toLowerCase().includes(search)) return false;
     return true;
   });
-  const container = document.getElementById('candidatures-list');
-  const empty     = document.getElementById('empty-cands');
   container.innerHTML = '';
   if (list.length === 0) { empty.style.display = ''; return; }
   empty.style.display = 'none';
@@ -513,7 +732,7 @@ function renderCandidaturesRH() {
           <span>RP : <strong>${esc(c.rp)}</strong></span>
           <span>ID Roblox : <strong>${esc(c.prenom)}</strong></span>
           <span>${esc(c.posteNom)}</span>
-          <span class="cat-badge cat-${c.posteCat}">${esc(c.posteCat)}</span>
+          ${catBadgeHtml(c.posteCat)}
         </div>
       </div>
       <div class="cand-right">
@@ -531,6 +750,7 @@ document.getElementById('filter-cat-cand').addEventListener('change', renderCand
 
 function renderPostesRH() {
   const container = document.getElementById('postes-rh-list');
+  const isAdmin = currentRole === 'admin';
   container.innerHTML = '';
   if (postes.length === 0) { container.innerHTML = '<div class="empty-state"><p>Aucun poste créé.</p></div>'; return; }
   postes.forEach(p => {
@@ -538,7 +758,7 @@ function renderPostesRH() {
     const row    = document.createElement('div');
     row.className = 'poste-rh-row';
     row.innerHTML = `
-      <span class="cat-badge cat-${p.cat}">${esc(p.cat)}</span>
+      ${catBadgeHtml(p.cat)}
       <div class="poste-rh-info">
         <div class="poste-rh-nom">${esc(p.nom)}</div>
         <div class="poste-rh-desc">${esc(p.desc)}</div>
@@ -546,13 +766,15 @@ function renderPostesRH() {
       <div class="poste-rh-actions">
         <span class="status-badge ${ouvert ? 'status-accepte' : 'status-refuse'}">${ouvert ? 'Ouvert' : 'Fermé'}</span>
         <button class="btn-sm" data-toggle="${p.id}">${ouvert ? 'Fermer' : 'Ouvrir'}</button>
-        <button class="btn-sm" data-edit="${p.id}">Modifier</button>
-        <button class="btn-sm danger" data-del="${p.id}">Supprimer</button>
+        ${isAdmin ? `<button class="btn-sm" data-edit="${p.id}">Modifier</button>
+        <button class="btn-sm danger" data-del="${p.id}">Supprimer</button>` : ''}
       </div>
     `;
     row.querySelector('[data-toggle]').addEventListener('click', () => togglePoste(p));
-    row.querySelector('[data-edit]').addEventListener('click',   () => openEditPoste(p));
-    row.querySelector('[data-del]').addEventListener('click',    () => deletePoste(p.id));
+    if (isAdmin) {
+      row.querySelector('[data-edit]').addEventListener('click', () => openEditPoste(p));
+      row.querySelector('[data-del]').addEventListener('click',  () => deletePoste(p.id));
+    }
     container.appendChild(row);
   });
 }
@@ -570,6 +792,7 @@ async function togglePoste(p) {
 }
 
 document.getElementById('btn-nouveau-poste').addEventListener('click', () => {
+  if (currentRole !== 'admin') { toast('⚠ Réservé aux admins', 'error'); return; }
   editPosteId = null;
   document.getElementById('nouveau-poste-title').textContent = 'Nouveau poste';
   document.getElementById('btn-submit-poste').textContent    = 'Créer le poste';
@@ -597,6 +820,7 @@ function openEditPoste(p) {
 function bindFormPoste() {
   document.getElementById('form-poste').addEventListener('submit', async e => {
     e.preventDefault();
+    if (currentRole !== 'admin') { toast('⚠ Réservé aux admins', 'error'); return; }
     const nom    = val('poste-nom'), cat  = val('poste-cat'),
           desc   = val('poste-desc'), prereq = val('poste-prereq');
     const ouvert = document.getElementById('poste-statut').value !== 'ferme';
@@ -614,6 +838,7 @@ function bindFormPoste() {
 }
 
 async function deletePoste(id) {
+  if (currentRole !== 'admin') { toast('⚠ Réservé aux admins', 'error'); return; }
   if (!confirm('Supprimer ce poste ?')) return;
   const p = postes.find(x => x.id === id);
   await db.collection('postes').doc(id).delete();
@@ -648,7 +873,9 @@ function bindCopyDiscord() {
 function openCandDetail(c) {
   currentCand = c;
   document.getElementById('detail-cat').textContent        = c.posteCat;
-  document.getElementById('detail-cat').className          = `modal-tag cat-badge cat-${c.posteCat}`;
+  document.getElementById('detail-cat').className          = 'modal-tag';
+  const catColor = getCategoryColor(c.posteCat);
+  document.getElementById('detail-cat').style.color        = catColor;
   document.getElementById('detail-poste').textContent      = c.posteNom;
   document.getElementById('detail-discord').textContent    = c.nom;
   const badgeEl = document.getElementById('detail-discord-verified');
@@ -675,6 +902,10 @@ function renderDetailActions(c) {
   container.innerHTML = '';
   if (c.statut === 'accepte') { container.innerHTML = `<span style="color:#5ab87a;font-weight:800;font-size:12px;letter-spacing:0.08em;text-transform:uppercase">✓ CANDIDATURE ACCEPTÉE</span>`; return; }
   if (c.statut === 'refuse')  { container.innerHTML = `<span style="color:#e07070;font-weight:800;font-size:12px;letter-spacing:0.08em;text-transform:uppercase">✕ CANDIDATURE REFUSÉE</span>`;  return; }
+  if (currentRole === 'rh' && !rhPermissions.actionCandidatures) {
+    container.innerHTML = `<span style="color:var(--text3);font-weight:700;font-size:11px;letter-spacing:0.06em;text-transform:uppercase">Tu n'as pas la permission d'agir sur cette candidature.</span>`;
+    return;
+  }
   if (c.statut === 'en_attente') container.appendChild(makeActionBtn('Prendre en charge', 'charge', () => actionCand(c, 'en_charge')));
   container.appendChild(makeActionBtn('✓ Accepter', 'accept', () => actionCand(c, 'accepte')));
   container.appendChild(makeActionBtn('✕ Refuser',  'refuse', () => actionCand(c, 'refuse')));
@@ -712,6 +943,12 @@ async function actionCand(c, newStatut) {
 function fillConfigForm() {
   document.getElementById('cfg-rh-email').value = config.rhEmail || '';
   document.getElementById('cfg-password').value = '';
+  const adminPwdField = document.getElementById('cfg-admin-password');
+  if (adminPwdField) adminPwdField.value = '';
+  const viewCb = document.getElementById('perm-view-cand');
+  const actCb  = document.getElementById('perm-action-cand');
+  if (viewCb) viewCb.checked = rhPermissions.viewCandidatures;
+  if (actCb)  actCb.checked  = rhPermissions.actionCandidatures;
   updateMaintenanceBtn();
 }
 
@@ -723,12 +960,27 @@ function bindConfigForm() {
     logAction('Maintenance', config.maintenance ? 'Activation du mode maintenance' : 'Désactivation du mode maintenance');
     toast(config.maintenance ? '⚠ Site en maintenance' : '✓ Site remis en ligne', config.maintenance ? 'error' : 'success');
   });
-  document.getElementById('btn-save-config').addEventListener('click', () => {
+  document.getElementById('btn-save-config').addEventListener('click', async () => {
     config.rhEmail = val('cfg-rh-email');
-    const newPwd   = val('cfg-password');
+    const newPwd      = val('cfg-password');
+    const newAdminPwd = val('cfg-admin-password');
     if (newPwd) config.password = newPwd;
+    if (newAdminPwd) config.adminPassword = newAdminPwd;
     saveConfig();
-    logAction('Configuration', newPwd ? 'Mise à jour de la configuration (email + mot de passe)' : 'Mise à jour de la configuration (email)');
+
+    const viewCb = document.getElementById('perm-view-cand');
+    const actCb  = document.getElementById('perm-action-cand');
+    if (viewCb && actCb) {
+      rhPermissions = { viewCandidatures: viewCb.checked, actionCandidatures: actCb.checked };
+      try {
+        await db.collection('meta').doc('rhPermissions').set(rhPermissions);
+      } catch (err) {
+        console.error('[Permissions] ❌', err);
+        toast('⚠ Échec sauvegarde permissions : ' + (err.message || err), 'error');
+      }
+    }
+
+    logAction('Configuration', (newPwd || newAdminPwd) ? 'Mise à jour de la configuration (mots de passe + permissions)' : 'Mise à jour de la configuration (email + permissions)');
     const ok = document.getElementById('config-success');
     ok.style.display = '';
     setTimeout(() => ok.style.display = 'none', 3000);
