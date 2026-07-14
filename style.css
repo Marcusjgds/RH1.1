@@ -804,3 +804,43 @@ footer p { color: var(--text3); font-size: 11px; font-weight: 600; letter-spacin
 .perm-check input[type="checkbox"] {
   width: 16px; height: 16px; accent-color: var(--gold); cursor: pointer;
 }
+
+/* ===================== BANDEAU INFO / ALERTE ===================== */
+.site-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 150;
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; padding: 11px 44px 11px 20px;
+  font-size: 12.5px; font-weight: 700; text-align: center;
+  line-height: 1.5;
+}
+.site-banner-icon { flex-shrink: 0; font-size: 15px; }
+.site-banner-text { max-width: 900px; }
+.site-banner-close {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: inherit;
+  font-size: 20px; line-height: 1; cursor: pointer; opacity: .75;
+  transition: opacity .2s;
+}
+.site-banner-close:hover { opacity: 1; }
+
+.site-banner.info {
+  background: rgba(212,168,67,0.14);
+  border-bottom: 1px solid rgba(212,168,67,0.35);
+  color: var(--gold);
+}
+.site-banner.alerte {
+  background: linear-gradient(135deg, #a52020, #8b1a1a);
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  color: #fff;
+  animation: bannerPulse 2.5s ease-in-out infinite;
+}
+@keyframes bannerPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(165,32,32,0); }
+  50%      { box-shadow: 0 0 24px rgba(165,32,32,0.5); }
+}
+
+#navbar { transition: top .2s; }
+
+@media (max-width: 640px) {
+  .site-banner { font-size: 11.5px; padding: 10px 38px 10px 14px; }
+}
