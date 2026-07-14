@@ -23,7 +23,7 @@ const DEFAULT_PERMISSIONS = { viewCandidatures: true, actionCandidatures: true }
    3. Onglet OAuth2 → Redirects → ajoute EXACTEMENT l'URL de ton site
       (celle utilisée par DISCORD_REDIRECT_URI, ex: https://tonsite.up.railway.app/)
 */
-const DISCORD_CLIENT_ID    = '1501561347295412255';
+const DISCORD_CLIENT_ID    = 'REMPLACE_PAR_TON_CLIENT_ID';
 const DISCORD_REDIRECT_URI = window.location.origin + '/';
 
 let discordUser = null; // { id, username } une fois vérifié
@@ -41,6 +41,8 @@ let editCatId    = null;
 let db           = null;
 let currentRHName = sessionStorage.getItem(RH_NAME_KEY) || '';
 let currentRole    = sessionStorage.getItem(RH_ROLE_KEY) || ''; // 'admin' | 'rh'
+let bannerData        = null;
+let bannerDraftActive = false;
 
 /* ── DEBUG : affiche les erreurs directement à l'écran (utile sans F12) ── */
 window.addEventListener('error', (e) => {
@@ -74,8 +76,10 @@ window.addEventListener('load', () => {
   listenLogs();
   listenCategories();
   listenPermissions();
+  listenBanner();
   bindDiscordConnect();
   bindCategorieForm();
+  bindBannerForm();
   handleDiscordRedirect();
 });
 
@@ -203,6 +207,96 @@ function listenPermissions() {
       console.error('[Listen permissions] ❌', err);
     }
   );
+}
+
+/* ============================================================
+   BANDEAU INFO / ALERTE
+   ============================================================ */
+function listenBanner() {
+  db.collection('meta').doc('banner').onSnapshot(
+    doc => {
+      bannerData = doc.exists ? doc.data() : null;
+      renderBanner();
+      if (document.getElementById('rh-dashboard').style.display !== 'none') fillConfigForm();
+    },
+    err => console.error('[Listen banner] ❌', err)
+  );
+}
+
+function renderBanner() {
+  const el = document.getElementById('site-banner');
+  if (!el) return;
+  if (!bannerData || !bannerData.active || !bannerData.text) {
+    el.style.display = 'none';
+    adjustBannerOffset(0);
+    return;
+  }
+  const dismissKey = 'banner_dismissed_' + (bannerData.updatedAt?.seconds || bannerData.text);
+  if (sessionStorage.getItem(dismissKey)) {
+    el.style.display = 'none';
+    adjustBannerOffset(0);
+    return;
+  }
+  document.getElementById('banner-text').textContent = bannerData.text;
+  document.getElementById('banner-icon').textContent = bannerData.type === 'alerte' ? '⚠️' : 'ℹ️';
+  el.className = 'site-banner ' + (bannerData.type === 'alerte' ? 'alerte' : 'info');
+  el.style.display = 'flex';
+  requestAnimationFrame(() => adjustBannerOffset(el.offsetHeight));
+  document.getElementById('banner-close').onclick = () => {
+    sessionStorage.setItem(dismissKey, '1');
+    el.style.display = 'none';
+    adjustBannerOffset(0);
+  };
+}
+
+function adjustBannerOffset(h) {
+  const navbar = document.getElementById('navbar');
+  const hero   = document.getElementById('hero');
+  if (navbar) navbar.style.top = h + 'px';
+  if (hero)   hero.style.paddingTop = (100 + h) + 'px';
+}
+
+function updateBannerToggleBtn() {
+  const label = document.getElementById('banner-active-label');
+  const btn   = document.getElementById('btn-toggle-banner');
+  if (!label || !btn) return;
+  if (bannerDraftActive) {
+    label.textContent = '✓ Bandeau activé';
+    label.style.color = '#5ab87a';
+    btn.textContent   = 'Désactiver le bandeau';
+  } else {
+    label.textContent = 'Bandeau désactivé';
+    label.style.color = 'var(--text3)';
+    btn.textContent   = 'Activer le bandeau';
+  }
+}
+
+function bindBannerForm() {
+  const toggleBtn = document.getElementById('btn-toggle-banner');
+  const saveBtn   = document.getElementById('btn-save-banner');
+  if (toggleBtn) toggleBtn.addEventListener('click', () => {
+    bannerDraftActive = !bannerDraftActive;
+    updateBannerToggleBtn();
+  });
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    const type = document.getElementById('banner-type').value;
+    const text = document.getElementById('banner-text-input').value.trim();
+    if (bannerDraftActive && !text) {
+      toast('⚠ Ajoute un texte avant d\'activer le bandeau.', 'error');
+      return;
+    }
+    try {
+      await db.collection('meta').doc('banner').set({
+        active: bannerDraftActive, type, text,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      logAction('Configuration', `Bandeau ${bannerDraftActive ? 'activé' : 'désactivé'} (${type === 'alerte' ? 'Alerte' : 'Information'})`);
+      toast('✓ Bandeau publié', 'success');
+    } catch (err) {
+      console.error('[Banner] ❌', err);
+      toast('⚠ Échec sauvegarde bandeau : ' + (err.message || err), 'error');
+    }
+  });
 }
 
 function updateStats() {
@@ -949,6 +1043,12 @@ function fillConfigForm() {
   const actCb  = document.getElementById('perm-action-cand');
   if (viewCb) viewCb.checked = rhPermissions.viewCandidatures;
   if (actCb)  actCb.checked  = rhPermissions.actionCandidatures;
+  const bannerTypeSel  = document.getElementById('banner-type');
+  const bannerTextArea = document.getElementById('banner-text-input');
+  if (bannerTypeSel)  bannerTypeSel.value  = bannerData?.type || 'info';
+  if (bannerTextArea) bannerTextArea.value = bannerData?.text || '';
+  bannerDraftActive = !!bannerData?.active;
+  updateBannerToggleBtn();
   updateMaintenanceBtn();
 }
 
