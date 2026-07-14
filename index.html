@@ -12,6 +12,13 @@
 </head>
 <body>
 
+<!-- BANDEAU INFO / ALERTE -->
+<div class="site-banner" id="site-banner" style="display:none">
+  <span class="site-banner-icon" id="banner-icon">ℹ️</span>
+  <span class="site-banner-text" id="banner-text"></span>
+  <button class="site-banner-close" id="banner-close" title="Fermer">&times;</button>
+</div>
+
 <!-- MAINTENANCE -->
 <div id="page-maintenance" style="display:none">
   <img class="maintenance-bg-logo" src="logo.png" alt="" />
@@ -261,6 +268,20 @@
           <button class="btn-toggle" id="btn-toggle-maintenance">Activer la maintenance</button>
         </div>
         <small>En mode maintenance, seuls les RH peuvent accéder au site.</small>
+      </div>
+      <div class="config-separator"></div>
+      <div class="field">
+        <label>Bandeau d'information / alerte</label>
+        <select id="banner-type">
+          <option value="info">Information (neutre)</option>
+          <option value="alerte">Alerte (rouge)</option>
+        </select>
+        <textarea id="banner-text-input" rows="2" placeholder="Texte affiché en haut du site..." style="margin-top:8px"></textarea>
+        <div class="toggle-row" style="margin-top:10px">
+          <span id="banner-active-label">Bandeau désactivé</span>
+          <button class="btn-toggle" id="btn-toggle-banner">Activer le bandeau</button>
+        </div>
+        <button class="btn-primary" id="btn-save-banner" style="margin-top:14px">Publier le bandeau</button>
       </div>
       <div class="config-separator"></div>
       <button class="btn-primary" id="btn-save-config">Sauvegarder</button>
