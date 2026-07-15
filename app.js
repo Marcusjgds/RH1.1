@@ -12,7 +12,7 @@ const FIREBASE_CONFIG = {
 };
 
 const FORMSUBMIT_URL  = (e) => `https://formsubmit.co/ajax/${encodeURIComponent(e)}`;
-const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', adminPassword: 'admin2025', maintenance: false };
+const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', adminPassword: 'Site11RPFR', maintenance: false };
 const RH_NAME_KEY      = 'rh_name';
 const RH_ROLE_KEY      = 'rh_role';
 const DEFAULT_PERMISSIONS = { viewCandidatures: true, actionCandidatures: true };
@@ -250,10 +250,12 @@ function renderBanner() {
 }
 
 function adjustBannerOffset(h) {
-  const navbar = document.getElementById('navbar');
-  const hero   = document.getElementById('hero');
-  if (navbar) navbar.style.top = h + 'px';
-  if (hero)   hero.style.paddingTop = (100 + h) + 'px';
+  const navbar   = document.getElementById('navbar');
+  const hero     = document.getElementById('hero');
+  const rhHeader = document.querySelector('.rh-header');
+  if (navbar)   navbar.style.top = h + 'px';
+  if (hero)     hero.style.paddingTop = (100 + h) + 'px';
+  if (rhHeader) rhHeader.style.top = h + 'px';
 }
 
 function updateBannerToggleBtn() {
