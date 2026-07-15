@@ -578,7 +578,57 @@ document.getElementById('modal-postuler').addEventListener('click', e => {
   if (e.target === e.currentTarget) hide('modal-postuler');
 });
 
+const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
+
+async function checkCooldown(discordId) {
+  if (!discordId) return null;
+  try {
+    const snap = await db.collection('candidatures').where('discordId', '==', discordId).get();
+    let lastRefusedAt = null;
+    snap.forEach(doc => {
+      const d = doc.data();
+      if (d.statut === 'refuse' && d.refusedAt?.toDate) {
+        const t = d.refusedAt.toDate();
+        if (!lastRefusedAt || t > lastRefusedAt) lastRefusedAt = t;
+      }
+    });
+    if (!lastRefusedAt) return null;
+    const elapsed = Date.now() - lastRefusedAt.getTime();
+    return elapsed < COOLDOWN_MS ? (COOLDOWN_MS - elapsed) : null;
+  } catch (err) {
+    console.error('[Cooldown] ❌', err);
+    return null; // en cas d'erreur, on ne bloque pas la candidature
+  }
+}
+
+function formatCooldown(ms) {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (h > 0) return `${h}h${m > 0 ? ' ' + m + 'min' : ''}`;
+  return `${m} min`;
+}
+
+/* ── Indicateur heuristique "Possible IA" — signal, pas une preuve ──
+   Repère des tournures typiques de texte généré par IA (transitions
+   génériques en chaîne, tirets cadratins, structure trop formelle).
+   Ne bloque jamais rien : c'est au RH de trancher. */
+const AI_MARKERS = [
+  'en tant que', 'de plus,', 'en outre,', 'par ailleurs,', 'il convient de',
+  'n\'hésitez pas', 'je reste à votre disposition', 'fort de mon expérience',
+  'passionné(e) par', 'en conclusion,', 'pour conclure,', 'tout d\'abord,',
+];
+function computeAiSuspicion(text) {
+  if (!text || text.length < 60) return false;
+  const lower = text.toLowerCase();
+  let score = 0;
+  AI_MARKERS.forEach(m => { if (lower.includes(m)) score++; });
+  if (text.includes('—')) score++;
+  if (text.length > 500 && (text.match(/\n\n/g) || []).length >= 2) score++;
+  return score >= 3;
+}
+
 function bindFormCandidature() {
+
   document.getElementById('form-candidature').addEventListener('submit', async e => {
     e.preventDefault();
     const prenom = val('f-prenom'), nom = val('f-nom'), rp = val('f-rp'),
@@ -592,16 +642,24 @@ function bindFormCandidature() {
       showFormError('form-error', 'Merci de te connecter avec Discord avant d\'envoyer ta candidature.'); return;
     }
     if (!emailValid(email)) { showFormError('form-error', 'Adresse email invalide.'); return; }
+
+    const remaining = await checkCooldown(discordId);
+    if (remaining) {
+      showFormError('form-error', `Ta dernière candidature a été refusée. Tu peux retenter dans ${formatCooldown(remaining)}.`);
+      return;
+    }
+
     setBtnLoading(true);
+    const aiSuspicious = computeAiSuspicion(motiv);
     const cand = {
       posteId: currentPoste.id, posteNom: currentPoste.nom, posteCat: currentPoste.cat,
       prenom, nom, discordId, rp, email, motiv, cv: cv||'', extra: extra||'',
-      statut: 'en_attente',
+      statut: 'en_attente', aiSuspicious,
       date: new Date().toLocaleDateString('fr-FR'),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     await db.collection('candidatures').add(cand);
-    logAction('Candidature', `Nouvelle candidature — Discord : ${nom} (vérifié, ID Roblox : ${prenom}) — poste "${currentPoste.nom}"`, 'Candidat (soumission publique)');
+    logAction('Candidature', `Nouvelle candidature — Discord : ${nom} (vérifié, ID Roblox : ${prenom}) — poste "${currentPoste.nom}"${aiSuspicious ? ' — ⚠ signal IA détecté' : ''}`, 'Candidat (soumission publique)');
     await sendMailRH(cand);
     await sendMailAccuse(cand);
     setBtnLoading(false);
@@ -823,6 +881,7 @@ function renderCandidaturesRH() {
       <div class="cand-info">
         <div class="cand-name">
           <span class="discord-pill">Discord : ${esc(c.nom)}</span>
+          ${c.aiSuspicious ? '<span class="ai-suspicious-badge">⚠ Possible IA</span>' : ''}
         </div>
         <div class="cand-meta">
           <span>RP : <strong>${esc(c.rp)}</strong></span>
@@ -986,6 +1045,10 @@ function openCandDetail(c) {
   document.getElementById('detail-rp').textContent         = c.rp;
   document.getElementById('detail-email').textContent      = c.email;
   document.getElementById('detail-motivation').textContent = c.motiv;
+  const motivLabel = document.querySelector('label[for="detail-motivation"]') || document.getElementById('detail-motivation').previousElementSibling;
+  if (motivLabel) {
+    motivLabel.innerHTML = 'Lettre de motivation' + (c.aiSuspicious ? ' <span class="ai-suspicious-badge">⚠ Possible IA — à vérifier</span>' : '');
+  }
   document.getElementById('detail-extra').textContent      = c.extra || '—';
   const cvEl = document.getElementById('detail-cv');
   cvEl.innerHTML = c.cv ? `<a href="${esc(c.cv)}" target="_blank" style="color:var(--gold)">${esc(c.cv)}</a>` : '—';
@@ -1016,7 +1079,9 @@ function makeActionBtn(label, cls, handler) {
 }
 
 async function actionCand(c, newStatut) {
-  await db.collection('candidatures').doc(c.id).update({ statut: newStatut });
+  const updateData = { statut: newStatut };
+  if (newStatut === 'refuse') updateData.refusedAt = firebase.firestore.FieldValue.serverTimestamp();
+  await db.collection('candidatures').doc(c.id).update(updateData);
   const updated = { ...c, statut: newStatut };
   currentCand = updated;
   if (newStatut === 'en_charge') await sendMailCharge(updated);
