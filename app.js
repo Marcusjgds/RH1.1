@@ -11,8 +11,7 @@ const FIREBASE_CONFIG = {
   appId:             "1:1010449432094:web:b17a0ad2e790681c62f80f",
 };
 
-const FORMSUBMIT_URL  = (e) => `https://formsubmit.co/ajax/${encodeURIComponent(e)}`;
-const DEFAULT_CONFIG  = { rhEmail: '', password: 'rh2025', adminPassword: 'Site11RPFR', maintenance: false };
+const DEFAULT_CONFIG  = { password: 'rh2025', adminPassword: 'Site11RPFR', maintenance: false };
 const RH_NAME_KEY      = 'rh_name';
 const RH_ROLE_KEY      = 'rh_role';
 const DEFAULT_PERMISSIONS = { viewCandidatures: true, actionCandidatures: true };
@@ -615,16 +614,21 @@ function formatCooldown(ms) {
 const AI_MARKERS = [
   'en tant que', 'de plus,', 'en outre,', 'par ailleurs,', 'il convient de',
   'n\'hésitez pas', 'je reste à votre disposition', 'fort de mon expérience',
-  'passionné(e) par', 'en conclusion,', 'pour conclure,', 'tout d\'abord,',
+  'riche de mon expérience', 'grâce à mon expérience', 'passionné(e) par',
+  'passionné par', 'passionnée par', 'en conclusion,', 'pour conclure,',
+  'tout d\'abord,', 'de surcroît', 'qui plus est', 'dans le cadre de',
+  'au sein de', 'permettez-moi de', 'je tiens à souligner', 'polyvalent',
+  'rigoureux', 'rigoureuse', 'assidu', 'esprit d\'équipe', 'n\'hésiterai pas',
+  'motivé(e)', 'dynamique et', 'sens du détail', 'force de proposition',
 ];
 function computeAiSuspicion(text) {
-  if (!text || text.length < 60) return false;
+  if (!text || text.length < 40) return false;
   const lower = text.toLowerCase();
   let score = 0;
   AI_MARKERS.forEach(m => { if (lower.includes(m)) score++; });
-  if (text.includes('—')) score++;
-  if (text.length > 500 && (text.match(/\n\n/g) || []).length >= 2) score++;
-  return score >= 3;
+  if (text.includes('—')) score += 2;
+  if (text.length > 400 && (text.match(/\n\n/g) || []).length >= 2) score++;
+  return score >= 2;
 }
 
 function bindFormCandidature() {
@@ -632,16 +636,15 @@ function bindFormCandidature() {
   document.getElementById('form-candidature').addEventListener('submit', async e => {
     e.preventDefault();
     const prenom = val('f-prenom'), nom = val('f-nom'), rp = val('f-rp'),
-          email  = val('f-email'), motiv = val('f-motivation'),
+          motiv = val('f-motivation'),
           cv     = val('f-cv'),   extra = val('f-extra'),
           discordId = val('f-discord-id');
-    if (!prenom || !rp || !email || !motiv) {
+    if (!prenom || !rp || !motiv) {
       showFormError('form-error', 'Merci de remplir tous les champs obligatoires.'); return;
     }
     if (!nom || !discordId) {
       showFormError('form-error', 'Merci de te connecter avec Discord avant d\'envoyer ta candidature.'); return;
     }
-    if (!emailValid(email)) { showFormError('form-error', 'Adresse email invalide.'); return; }
 
     const remaining = await checkCooldown(discordId);
     if (remaining) {
@@ -653,15 +656,13 @@ function bindFormCandidature() {
     const aiSuspicious = computeAiSuspicion(motiv);
     const cand = {
       posteId: currentPoste.id, posteNom: currentPoste.nom, posteCat: currentPoste.cat,
-      prenom, nom, discordId, rp, email, motiv, cv: cv||'', extra: extra||'',
+      prenom, nom, discordId, rp, motiv, cv: cv||'', extra: extra||'',
       statut: 'en_attente', aiSuspicious,
       date: new Date().toLocaleDateString('fr-FR'),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     await db.collection('candidatures').add(cand);
     logAction('Candidature', `Nouvelle candidature — Discord : ${nom} (vérifié, ID Roblox : ${prenom}) — poste "${currentPoste.nom}"${aiSuspicious ? ' — ⚠ signal IA détecté' : ''}`, 'Candidat (soumission publique)');
-    await sendMailRH(cand);
-    await sendMailAccuse(cand);
     setBtnLoading(false);
     hide('modal-postuler');
     toast('✓ Candidature envoyée avec succès !', 'success');
@@ -681,7 +682,7 @@ function bindDiscordConnect() {
     }
     const draft = {
       posteId: currentPoste.id, posteNom: currentPoste.nom, posteCat: currentPoste.cat,
-      prenom: val('f-prenom'), rp: val('f-rp'), email: val('f-email'),
+      prenom: val('f-prenom'), rp: val('f-rp'),
       motiv: val('f-motivation'), cv: val('f-cv'), extra: val('f-extra'),
     };
     sessionStorage.setItem('cand_draft', JSON.stringify(draft));
@@ -721,7 +722,6 @@ function handleDiscordRedirect() {
         document.getElementById('modal-poste-title').textContent = draft.posteNom;
         setVal('f-prenom', draft.prenom);
         setVal('f-rp', draft.rp);
-        setVal('f-email', draft.email);
         setVal('f-motivation', draft.motiv);
         setVal('f-cv', draft.cv);
         setVal('f-extra', draft.extra);
@@ -1043,7 +1043,6 @@ function openCandDetail(c) {
   }
   document.getElementById('detail-roblox').textContent     = c.prenom;
   document.getElementById('detail-rp').textContent         = c.rp;
-  document.getElementById('detail-email').textContent      = c.email;
   document.getElementById('detail-motivation').textContent = c.motiv;
   const motivLabel = document.querySelector('label[for="detail-motivation"]') || document.getElementById('detail-motivation').previousElementSibling;
   if (motivLabel) {
@@ -1084,16 +1083,13 @@ async function actionCand(c, newStatut) {
   await db.collection('candidatures').doc(c.id).update(updateData);
   const updated = { ...c, statut: newStatut };
   currentCand = updated;
-  if (newStatut === 'en_charge') await sendMailCharge(updated);
-  if (newStatut === 'accepte')   await sendMailAccept(updated);
-  if (newStatut === 'refuse')    await sendMailRefuse(updated);
   const actionLabel = newStatut === 'en_charge' ? 'Prise en charge' : newStatut === 'accepte' ? 'Acceptation' : 'Refus';
   logAction('Candidature', `${actionLabel} — Discord : ${c.nom} (ID Roblox : ${c.prenom}) — poste "${c.posteNom}"`);
   renderDetailActions(updated);
   toast(
-    newStatut === 'en_charge' ? '📧 Email de prise en charge envoyé' :
-    newStatut === 'accepte'   ? '✓ Candidature acceptée — email envoyé' :
-                                '✕ Candidature refusée — email envoyé',
+    newStatut === 'en_charge' ? '📩 Discord notifié — candidature prise en charge' :
+    newStatut === 'accepte'   ? '✓ Candidature acceptée — Discord notifié' :
+                                '✕ Candidature refusée — Discord notifié',
     newStatut === 'refuse' ? 'error' : 'success'
   );
 }
@@ -1102,7 +1098,6 @@ async function actionCand(c, newStatut) {
    CONFIG
    ============================================================ */
 function fillConfigForm() {
-  document.getElementById('cfg-rh-email').value = config.rhEmail || '';
   document.getElementById('cfg-password').value = '';
   const adminPwdField = document.getElementById('cfg-admin-password');
   if (adminPwdField) adminPwdField.value = '';
@@ -1128,7 +1123,6 @@ function bindConfigForm() {
     toast(config.maintenance ? '⚠ Site en maintenance' : '✓ Site remis en ligne', config.maintenance ? 'error' : 'success');
   });
   document.getElementById('btn-save-config').addEventListener('click', async () => {
-    config.rhEmail = val('cfg-rh-email');
     const newPwd      = val('cfg-password');
     const newAdminPwd = val('cfg-admin-password');
     if (newPwd) config.password = newPwd;
@@ -1155,51 +1149,12 @@ function bindConfigForm() {
 }
 
 /* ============================================================
-   FORMSUBMIT — MAILS
-   ============================================================ */
-async function fsSend(to, subject, body) {
-  if (!to) return;
-  try {
-    const res = await fetch(FORMSUBMIT_URL(to), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ subject, message: body, _subject: subject, _captcha: 'false', _template: 'box', from_name: 'SCP SITE 11 — Recrutement' }),
-    });
-    const data = await res.json();
-    console.log(data.success ? `[Mail] ✅ ${to}` : `[Mail] ❌ ${data.message}`);
-  } catch(err) { console.error('[Mail] ❌', err); }
-}
-
-async function sendMailRH(c) {
-  if (!config.rhEmail) return;
-  await fsSend(config.rhEmail, `[SCP SITE 11] Nouvelle candidature — ${c.posteNom}`,
-    `Nouvelle candidature sur SCP SITE 11.\n\nPoste : ${c.posteNom} (${c.posteCat})\nDiscord : ${c.nom}${c.discordId ? ` (ID vérifié : ${c.discordId})` : ' (non vérifié)'}\nID Roblox : ${c.prenom}\nRP : ${c.rp}\nEmail : ${c.email}\nDate : ${c.date}\n\nMOTIVATION :\n${c.motiv}\n\nCV : ${c.cv||'Non fourni'}\n\nINFOS SUPP. :\n${c.extra||'Aucune'}`);
-}
-async function sendMailAccuse(c) {
-  await fsSend(c.email, `[SCP SITE 11] Candidature reçue — ${c.posteNom}`,
-    `Bonjour ${c.prenom},\n\nNous avons bien reçu votre candidature et nous vous remercions de la confiance que vous nous témoignez.\n\nVotre dossier a été transmis à la personne en charge de ce recrutement, qui reviendra vers vous si votre candidature correspond à la recherche en cours. Si vous n'êtes pas contacté prochainement, veuillez considérer que votre profil ne correspond pas à la recherche en cours.\n\nNéanmoins, votre profil est susceptible de nous intéresser pour d'autres postes que nous aurions à pourvoir.\n\nAussi, sauf avis contraire de votre part, nous vous proposons de conserver votre dossier afin de pouvoir vous recontacter en fonction de futures opportunités.\n\nLe service des Ressources Humaines`);
-}
-async function sendMailCharge(c) {
-  await fsSend(c.email, `[SCP SITE 11] Ta candidature est prise en charge`,
-    `Bonjour ${c.prenom},\n\nVotre candidature pour le poste ${c.posteNom} sur SCP SITE 11 — Nous accusons réception de votre candidature et nous vous remercions de l'intérêt que vous portez à la société. Votre dossier sera traité dans les plus brefs délais.\n\nCependant si aucune réponse ne vous a été formulée dans un délai de deux mois suivant votre candidature, considérez que votre dossier n'est pas retenu.\n\nNous vous prions d'agréer, nos salutations les meilleures.\n\nLe service des Ressources Humaines`);
-}
-async function sendMailAccept(c) {
-  await fsSend(c.email, `[SCP SITE 11] Candidature acceptée !`,
-    `Bonjour ${c.prenom},\n\nVotre candidature pour le poste ${c.posteNom} sur SCP SITE 11 a été acceptée.\n\nBienvenue dans l'équipe ! Nous allons vous recontacter prochainement.\n\nLe service des Ressources Humaines`);
-}
-async function sendMailRefuse(c) {
-  await fsSend(c.email, `[SCP SITE 11] Résultat de ta candidature`,
-    `Bonjour ${c.prenom},\n\nMalgré tout l'intérêt de votre candidature pour le poste ${c.posteNom} sur SCP SITE 11, nous sommes dans le regret de ne pas pouvoir donner suite à votre demande. Nous vous souhaitons de trouver satisfaction dans votre recherche.\n\nLe service des Ressources Humaines`);
-}
-
-/* ============================================================
    UTILITAIRES
    ============================================================ */
 function show(id) { document.getElementById(id).style.display = 'flex'; }
 function hide(id) { document.getElementById(id).style.display = 'none'; }
 function val(id)  { return document.getElementById(id).value.trim(); }
 function esc(s)   { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
-function emailValid(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 function showFormError(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = ''; }
 function statusLabel(s) { return { en_attente:'En attente', en_charge:'Pris en charge', accepte:'Accepté', refuse:'Refusé' }[s]||s; }
 let toastTimer = null;
