@@ -26,6 +26,7 @@ const DISCORD_CLIENT_ID    = '1467252987377352778';
 const DISCORD_REDIRECT_URI = window.location.origin + '/';
 
 let discordUser = null; // { id, username } une fois vérifié
+const DISCORD_STORAGE_KEY = 'discord_verified_user';
 
 let config       = loadConfig();
 let postes       = [];
@@ -42,6 +43,8 @@ let currentRHName = sessionStorage.getItem(RH_NAME_KEY) || '';
 let currentRole    = sessionStorage.getItem(RH_ROLE_KEY) || ''; // 'admin' | 'rh'
 let bannerData        = null;
 let bannerDraftActive = false;
+let maintenanceActive = false;
+let blacklist         = [];
 
 /* ── DEBUG : affiche les erreurs directement à l'écran (utile sans F12) ── */
 window.addEventListener('error', (e) => {
@@ -76,9 +79,14 @@ window.addEventListener('load', () => {
   listenCategories();
   listenPermissions();
   listenBanner();
+  listenMaintenance();
+  listenBlacklist();
   bindDiscordConnect();
   bindCategorieForm();
   bindBannerForm();
+  bindModerationSearch();
+  bindBlacklistForm();
+  loadStoredDiscordUser();
   handleDiscordRedirect();
 });
 
@@ -100,7 +108,7 @@ function applyMaintenance() {
   const hero   = document.getElementById('hero');
   const postes = document.getElementById('postes');
   const footer = document.querySelector('footer');
-  if (config.maintenance) {
+  if (maintenanceActive) {
     maint.style.display  = 'flex';
     navbar.style.display = 'none';
     hero.style.display   = 'none';
@@ -123,7 +131,7 @@ function bindMaintenanceLogin() {
 function updateMaintenanceBtn() {
   const label = document.getElementById('maintenance-label');
   const btn   = document.getElementById('btn-toggle-maintenance');
-  if (config.maintenance) {
+  if (maintenanceActive) {
     label.textContent = '⚠ Site en maintenance';
     label.style.color = '#d09050';
     btn.textContent   = 'Remettre en ligne';
@@ -147,6 +155,7 @@ function listenPostes() {
     const cat = document.querySelector('.filter-btn.active')?.dataset.cat || 'all';
     renderPostesPublic(cat);
     updateStats();
+    populatePosteBlacklistSelect();
     if (document.getElementById('rh-dashboard').style.display !== 'none') renderPostesRH();
   });
 }
@@ -155,7 +164,11 @@ function listenCandidatures() {
   db.collection('candidatures').orderBy('createdAt', 'desc').onSnapshot(snap => {
     candidatures = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     updateStats();
-    if (document.getElementById('rh-dashboard').style.display !== 'none') renderCandidaturesRH();
+    updateDiscordDatalist();
+    if (document.getElementById('rh-dashboard').style.display !== 'none') {
+      renderCandidaturesRH();
+      renderModerationList();
+    }
     if (currentCand && document.getElementById('modal-cand-detail').style.display !== 'none') {
       const updated = candidatures.find(c => c.id === currentCand.id);
       if (updated) { currentCand = updated; renderDetailActions(updated); }
@@ -246,6 +259,17 @@ function renderBanner() {
     el.style.display = 'none';
     adjustBannerOffset(0);
   };
+}
+
+function listenMaintenance() {
+  db.collection('meta').doc('site').onSnapshot(
+    doc => {
+      maintenanceActive = doc.exists ? !!doc.data().maintenance : false;
+      applyMaintenance();
+      updateMaintenanceBtn();
+    },
+    err => console.error('[Listen maintenance] ❌', err)
+  );
 }
 
 function adjustBannerOffset(h) {
@@ -565,10 +589,17 @@ function openPostuler(poste) {
   document.getElementById('modal-poste-title').textContent = poste.nom;
   document.getElementById('form-candidature').reset();
   document.getElementById('form-error').style.display = 'none';
-  document.getElementById('f-discord-id').value = '';
   const statusEl = document.getElementById('discord-status');
-  statusEl.textContent = 'Clique pour vérifier ton compte Discord.';
-  statusEl.className   = 'discord-status';
+  if (discordUser) {
+    setVal('f-nom', discordUser.username);
+    setVal('f-discord-id', discordUser.id);
+    statusEl.textContent = `✓ Connecté en tant que ${discordUser.username}`;
+    statusEl.className   = 'discord-status verified';
+  } else {
+    document.getElementById('f-discord-id').value = '';
+    statusEl.textContent = 'Clique pour vérifier ton compte Discord.';
+    statusEl.className   = 'discord-status';
+  }
   show('modal-postuler');
 }
 
@@ -586,7 +617,7 @@ async function checkCooldown(discordId) {
     let lastRefusedAt = null;
     snap.forEach(doc => {
       const d = doc.data();
-      if (d.statut === 'refuse' && d.refusedAt?.toDate) {
+      if (d.statut === 'refuse' && d.refusedAt?.toDate && !d.cooldownLifted) {
         const t = d.refusedAt.toDate();
         if (!lastRefusedAt || t > lastRefusedAt) lastRefusedAt = t;
       }
@@ -631,6 +662,161 @@ function computeAiSuspicion(text) {
   return score >= 2;
 }
 
+/* ============================================================
+   MODÉRATION — recherche candidats, levée de cooldown, blacklist
+   ============================================================ */
+function getPeopleFromCandidatures() {
+  const map = new Map();
+  candidatures.forEach(c => {
+    if (!c.discordId) return;
+    if (!map.has(c.discordId)) map.set(c.discordId, { discordId: c.discordId, nom: c.nom, entries: [] });
+    map.get(c.discordId).entries.push(c);
+  });
+  return Array.from(map.values());
+}
+
+function getActiveCooldown(entries) {
+  let lastRefusedAt = null;
+  entries.forEach(c => {
+    if (c.statut === 'refuse' && c.refusedAt?.toDate && !c.cooldownLifted) {
+      const t = c.refusedAt.toDate();
+      if (!lastRefusedAt || t > lastRefusedAt) lastRefusedAt = t;
+    }
+  });
+  if (!lastRefusedAt) return null;
+  const elapsed = Date.now() - lastRefusedAt.getTime();
+  return elapsed < COOLDOWN_MS ? { remaining: COOLDOWN_MS - elapsed } : null;
+}
+
+function bindModerationSearch() {
+  const input = document.getElementById('search-moderation');
+  if (input) input.addEventListener('input', renderModerationList);
+}
+
+function renderModerationList() {
+  const container = document.getElementById('moderation-list');
+  if (!container) return;
+  const search = (document.getElementById('search-moderation')?.value || '').trim().toLowerCase();
+  const people = getPeopleFromCandidatures().filter(p => !search || p.nom.toLowerCase().includes(search));
+  container.innerHTML = '';
+  if (people.length === 0) { container.innerHTML = '<div class="empty-state"><p>Aucun candidat trouvé.</p></div>'; return; }
+  people.forEach(p => {
+    const cooldown = getActiveCooldown(p.entries);
+    const row = document.createElement('div');
+    row.className = 'mod-row';
+    row.innerHTML = `
+      <span class="discord-pill">Discord : ${esc(p.nom)}</span>
+      <span class="mod-status">${cooldown ? `⏳ Cooldown actif — ${formatCooldown(cooldown.remaining)} restant` : '✓ Aucun cooldown'}</span>
+      ${cooldown ? `<button class="btn-sm" data-lift="${p.discordId}">Lever le cooldown</button>` : ''}
+    `;
+    if (cooldown) {
+      row.querySelector('[data-lift]').addEventListener('click', () => liftCooldown(p.discordId, p.nom));
+    }
+    container.appendChild(row);
+  });
+}
+
+async function liftCooldown(discordId, nom) {
+  try {
+    const snap = await db.collection('candidatures').where('discordId', '==', discordId).get();
+    let found = false;
+    const batch = db.batch();
+    snap.forEach(doc => {
+      const d = doc.data();
+      if (d.statut === 'refuse' && d.refusedAt && !d.cooldownLifted) {
+        batch.update(doc.ref, { cooldownLifted: true });
+        found = true;
+      }
+    });
+    if (found) await batch.commit();
+    logAction('Modération', `Cooldown levé pour Discord : ${nom}`);
+    toast('✓ Cooldown levé', 'success');
+    renderModerationList();
+  } catch (err) {
+    console.error('[Lift cooldown] ❌', err);
+    toast('⚠ Échec : ' + (err.message || err), 'error');
+  }
+}
+
+function listenBlacklist() {
+  db.collection('blacklist').orderBy('createdAt', 'desc').onSnapshot(
+    snap => {
+      blacklist = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderBlacklistRH();
+    },
+    err => console.error('[Listen blacklist] ❌', err)
+  );
+}
+
+function populatePosteBlacklistSelect() {
+  const sel = document.getElementById('blacklist-poste');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Choisir un poste...</option><option value="all">Tous les postes</option>' +
+    postes.map(p => `<option value="${p.id}">${esc(p.nom)}</option>`).join('');
+  if (current) sel.value = current;
+}
+
+function updateDiscordDatalist() {
+  const dl = document.getElementById('discord-pseudo-datalist');
+  if (!dl) return;
+  const names = [...new Set(candidatures.map(c => c.nom).filter(Boolean))];
+  dl.innerHTML = names.map(n => `<option value="${esc(n)}"></option>`).join('');
+}
+
+function bindBlacklistForm() {
+  const form = document.getElementById('form-blacklist');
+  if (!form) return;
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const nomTyped = val('blacklist-nom');
+    const posteId  = document.getElementById('blacklist-poste').value;
+    if (!nomTyped || !posteId) return;
+    const match = candidatures.find(c => (c.nom || '').toLowerCase() === nomTyped.toLowerCase());
+    if (!match) {
+      toast('⚠ Aucune candidature trouvée avec ce pseudo exact.', 'error');
+      return;
+    }
+    const posteNom = posteId === 'all' ? 'Tous les postes' : (postes.find(p => p.id === posteId)?.nom || posteId);
+    try {
+      await db.collection('blacklist').add({
+        discordId: match.discordId, discordNom: match.nom,
+        posteId, posteNom,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      logAction('Modération', `Blacklist ajoutée — Discord : ${match.nom} — ${posteNom}`);
+      toast('✓ Ajouté à la liste noire', 'success');
+      form.reset();
+    } catch (err) {
+      console.error('[Blacklist] ❌', err);
+      toast('⚠ Échec : ' + (err.message || err), 'error');
+    }
+  });
+}
+
+function renderBlacklistRH() {
+  const container = document.getElementById('blacklist-list');
+  if (!container) return;
+  container.innerHTML = '';
+  if (blacklist.length === 0) { container.innerHTML = '<div class="empty-state"><p>Aucune entrée dans la liste noire.</p></div>'; return; }
+  blacklist.forEach(b => {
+    const row = document.createElement('div');
+    row.className = 'mod-row';
+    row.innerHTML = `
+      <span class="discord-pill">Discord : ${esc(b.discordNom)}</span>
+      <span class="mod-status">${esc(b.posteNom)}</span>
+      <button class="btn-sm danger" data-del-bl="${b.id}">Retirer</button>
+    `;
+    row.querySelector('[data-del-bl]').addEventListener('click', async () => {
+      if (!confirm(`Retirer ${b.discordNom} de la liste noire pour "${b.posteNom}" ?`)) return;
+      await db.collection('blacklist').doc(b.id).delete();
+      logAction('Modération', `Blacklist retirée — Discord : ${b.discordNom} — ${b.posteNom}`);
+      toast('Retiré de la liste noire', 'success');
+    });
+    container.appendChild(row);
+  });
+}
+
 function bindFormCandidature() {
 
   document.getElementById('form-candidature').addEventListener('submit', async e => {
@@ -652,6 +838,12 @@ function bindFormCandidature() {
       return;
     }
 
+    const blacklisted = blacklist.some(b => b.discordId === discordId && (b.posteId === 'all' || b.posteId === currentPoste.id));
+    if (blacklisted) {
+      showFormError('form-error', 'Tu ne peux pas postuler à ce poste actuellement. Contacte un membre du staff si tu penses qu\'il s\'agit d\'une erreur.');
+      return;
+    }
+
     setBtnLoading(true);
     const aiSuspicious = computeAiSuspicion(motiv);
     const cand = {
@@ -670,6 +862,25 @@ function bindFormCandidature() {
 }
 
 function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v || ''; }
+
+function loadStoredDiscordUser() {
+  try {
+    const raw = localStorage.getItem(DISCORD_STORAGE_KEY);
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (stored.day === new Date().toDateString() && stored.id && stored.username) {
+      discordUser = { id: stored.id, username: stored.username };
+    } else {
+      localStorage.removeItem(DISCORD_STORAGE_KEY);
+    }
+  } catch {
+    localStorage.removeItem(DISCORD_STORAGE_KEY);
+  }
+}
+
+function saveStoredDiscordUser(id, username) {
+  localStorage.setItem(DISCORD_STORAGE_KEY, JSON.stringify({ id, username, day: new Date().toDateString() }));
+}
 
 function bindDiscordConnect() {
   const btn = document.getElementById('btn-discord-connect');
@@ -714,6 +925,7 @@ function handleDiscordRedirect() {
     .then(user => {
       const username = user.global_name || user.username;
       discordUser = { id: user.id, username };
+      saveStoredDiscordUser(user.id, username);
 
       const draftRaw = sessionStorage.getItem('cand_draft');
       if (draftRaw) {
@@ -842,6 +1054,7 @@ function bindRHTabs() {
       document.getElementById(`tab-${tab.dataset.tab}`).style.display = '';
       if (tab.dataset.tab === 'logs') renderLogsRH();
       if (tab.dataset.tab === 'categories') renderCategoriesRH();
+      if (tab.dataset.tab === 'moderation') { renderModerationList(); renderBlacklistRH(); }
     });
   });
 }
@@ -1115,12 +1328,16 @@ function fillConfigForm() {
 }
 
 function bindConfigForm() {
-  document.getElementById('btn-toggle-maintenance').addEventListener('click', () => {
-    config.maintenance = !config.maintenance;
-    saveConfig();
-    updateMaintenanceBtn();
-    logAction('Maintenance', config.maintenance ? 'Activation du mode maintenance' : 'Désactivation du mode maintenance');
-    toast(config.maintenance ? '⚠ Site en maintenance' : '✓ Site remis en ligne', config.maintenance ? 'error' : 'success');
+  document.getElementById('btn-toggle-maintenance').addEventListener('click', async () => {
+    const newVal = !maintenanceActive;
+    try {
+      await db.collection('meta').doc('site').set({ maintenance: newVal }, { merge: true });
+      logAction('Maintenance', newVal ? 'Activation du mode maintenance (tout le monde)' : 'Désactivation du mode maintenance');
+      toast(newVal ? '⚠ Site en maintenance pour tout le monde' : '✓ Site remis en ligne pour tout le monde', newVal ? 'error' : 'success');
+    } catch (err) {
+      console.error('[Maintenance] ❌', err);
+      toast('⚠ Échec changement maintenance : ' + (err.message || err), 'error');
+    }
   });
   document.getElementById('btn-save-config').addEventListener('click', async () => {
     const newPwd      = val('cfg-password');
