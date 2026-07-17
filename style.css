@@ -855,3 +855,60 @@ footer p { color: var(--text3); font-size: 11px; font-weight: 600; letter-spacin
   background: rgba(192,64,64,0.14); color: #e07070;
   border: 1px solid rgba(192,64,64,0.35);
 }
+
+/* ===================== MODÉRATION ===================== */
+.mod-subheading {
+  font-size: 13px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text2); margin: 20px 0 14px;
+}
+.mod-subheading:first-of-type { margin-top: 0; }
+
+.mod-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.mod-row {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 18px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.mod-status { font-size: 12px; color: var(--text2); font-weight: 600; flex: 1; min-width: 160px; }
+
+.blacklist-form {
+  display: flex; gap: 10px; align-items: center;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.blacklist-form input[type="text"] {
+  flex: 1; min-width: 200px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--white); font-family: var(--font);
+  font-size: 14px; padding: 10px 14px; border-radius: var(--r);
+  outline: none;
+}
+.blacklist-form select {
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--font);
+  font-size: 13px; padding: 10px 14px; border-radius: var(--r);
+  outline: none; cursor: pointer;
+}
+
+/* ===================== RESPONSIVE MOBILE ÉLARGI ===================== */
+@media (max-width: 900px) {
+  .rh-header { flex-wrap: wrap; height: auto; padding: 14px 16px; gap: 10px; }
+  .rh-nav { flex-wrap: wrap; row-gap: 6px; }
+}
+
+@media (max-width: 480px) {
+  .nav-logo-sub { display: none; }
+  .nav-link { display: none; }
+  .nav-inner { padding: 0 16px; }
+  #hero h1 { font-size: 2.2rem; }
+  .hero-sub { font-size: 14px; }
+  .hero-cta { flex-direction: column; width: 100%; gap: 10px; }
+  .hero-cta .btn-primary, .hero-cta .btn-ghost { width: 100%; justify-content: center; text-align: center; }
+}
+
+@media (max-width: 640px) {
+  .mod-row { flex-direction: column; align-items: stretch; text-align: left; }
+  .blacklist-form { flex-direction: column; align-items: stretch; }
+  .blacklist-form select, .blacklist-form input[type="text"] { width: 100%; }
+  .cat-form { flex-direction: column; align-items: stretch; }
+  .cat-form input[type="color"] { width: 100%; height: 44px; }
+}
