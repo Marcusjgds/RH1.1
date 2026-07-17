@@ -166,6 +166,7 @@
       <button class="rh-tab active" data-tab="candidatures" data-perm="viewCandidatures">Candidatures</button>
       <button class="rh-tab" data-tab="postes">Postes</button>
       <button class="rh-tab admin-only" data-tab="categories">Catégories</button>
+      <button class="rh-tab admin-only" data-tab="moderation">Modération</button>
       <button class="rh-tab admin-only" data-tab="logs">Logs</button>
       <button class="rh-tab admin-only" data-tab="config">Configuration</button>
       <span class="rh-connected-as" id="rh-connected-as"></span>
@@ -212,6 +213,32 @@
       <button type="submit" class="btn-primary">+ Ajouter</button>
     </form>
     <div class="categories-list" id="categories-list"></div>
+  </div>
+
+  <div class="rh-content" id="tab-moderation" style="display:none">
+    <div class="rh-section-header">
+      <h2>Modération</h2>
+    </div>
+
+    <h3 class="mod-subheading">Rechercher un candidat / gérer le cooldown</h3>
+    <div class="rh-filters" style="margin-bottom:16px">
+      <input type="text" id="search-moderation" placeholder="Rechercher un pseudo Discord..." />
+    </div>
+    <div class="mod-list" id="moderation-list"></div>
+
+    <div class="config-separator"></div>
+
+    <h3 class="mod-subheading">Liste noire</h3>
+    <form id="form-blacklist" class="blacklist-form" novalidate>
+      <input type="text" id="blacklist-nom" list="discord-pseudo-datalist" placeholder="Pseudo Discord exact" required />
+      <datalist id="discord-pseudo-datalist"></datalist>
+      <select id="blacklist-poste" required>
+        <option value="">Choisir un poste...</option>
+        <option value="all">Tous les postes</option>
+      </select>
+      <button type="submit" class="btn-primary">+ Blacklister</button>
+    </form>
+    <div class="mod-list" id="blacklist-list"></div>
   </div>
 
   <div class="rh-content" id="tab-logs" style="display:none">
