@@ -613,7 +613,7 @@ const COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h
 async function checkCooldown(discordId) {
   if (!discordId) return null;
   try {
-    const snap = await db.collection('candidatures').where('discordId', '==', discordId).get();
+    const snap = await db.collection('candidatures').where('discordId', '==', discordId).get({ source: 'server' });
     let lastRefusedAt = null;
     snap.forEach(doc => {
       const d = doc.data();
@@ -842,6 +842,20 @@ function bindFormCandidature() {
     if (blacklisted) {
       showFormError('form-error', 'Tu ne peux pas postuler à ce poste actuellement. Contacte un membre du staff si tu penses qu\'il s\'agit d\'une erreur.');
       return;
+    }
+
+    try {
+      const alreadyAcceptedSnap = await db.collection('candidatures')
+        .where('discordId', '==', discordId)
+        .where('posteId', '==', currentPoste.id)
+        .where('statut', '==', 'accepte')
+        .get({ source: 'server' });
+      if (!alreadyAcceptedSnap.empty) {
+        showFormError('form-error', 'Tu fais déjà partie de ce poste. Impossible de repostuler tant que tu n\'en as pas été retiré.');
+        return;
+      }
+    } catch (err) {
+      console.error('[Check déjà accepté] ❌', err);
     }
 
     setBtnLoading(true);
@@ -1271,8 +1285,18 @@ function openCandDetail(c) {
 function renderDetailActions(c) {
   const container = document.getElementById('detail-actions');
   container.innerHTML = '';
-  if (c.statut === 'accepte') { container.innerHTML = `<span style="color:#5ab87a;font-weight:800;font-size:12px;letter-spacing:0.08em;text-transform:uppercase">✓ CANDIDATURE ACCEPTÉE</span>`; return; }
+  if (c.statut === 'accepte') {
+    container.innerHTML = `<span style="color:#5ab87a;font-weight:800;font-size:12px;letter-spacing:0.08em;text-transform:uppercase">✓ CANDIDATURE ACCEPTÉE</span>`;
+    if (currentRole === 'admin' || rhPermissions.actionCandidatures) {
+      container.appendChild(makeActionBtn('⛔ Virer du poste', 'refuse', () => {
+        if (!confirm(`Virer ${c.prenom} du poste "${c.posteNom}" ? Il/elle pourra repostuler et recevra un message Discord.`)) return;
+        actionCand(c, 'vire');
+      }));
+    }
+    return;
+  }
   if (c.statut === 'refuse')  { container.innerHTML = `<span style="color:#e07070;font-weight:800;font-size:12px;letter-spacing:0.08em;text-transform:uppercase">✕ CANDIDATURE REFUSÉE</span>`;  return; }
+  if (c.statut === 'vire')    { container.innerHTML = `<span style="color:#e07070;font-weight:800;font-size:12px;letter-spacing:0.08em;text-transform:uppercase">⛔ RETIRÉ DU POSTE</span>`;  return; }
   if (currentRole === 'rh' && !rhPermissions.actionCandidatures) {
     container.innerHTML = `<span style="color:var(--text3);font-weight:700;font-size:11px;letter-spacing:0.06em;text-transform:uppercase">Tu n'as pas la permission d'agir sur cette candidature.</span>`;
     return;
@@ -1293,17 +1317,19 @@ function makeActionBtn(label, cls, handler) {
 async function actionCand(c, newStatut) {
   const updateData = { statut: newStatut };
   if (newStatut === 'refuse') updateData.refusedAt = firebase.firestore.FieldValue.serverTimestamp();
+  if (newStatut === 'vire')   updateData.vireAt = firebase.firestore.FieldValue.serverTimestamp();
   await db.collection('candidatures').doc(c.id).update(updateData);
   const updated = { ...c, statut: newStatut };
   currentCand = updated;
-  const actionLabel = newStatut === 'en_charge' ? 'Prise en charge' : newStatut === 'accepte' ? 'Acceptation' : 'Refus';
+  const actionLabel = newStatut === 'en_charge' ? 'Prise en charge' : newStatut === 'accepte' ? 'Acceptation' : newStatut === 'vire' ? 'Retrait du poste' : 'Refus';
   logAction('Candidature', `${actionLabel} — Discord : ${c.nom} (ID Roblox : ${c.prenom}) — poste "${c.posteNom}"`);
   renderDetailActions(updated);
   toast(
     newStatut === 'en_charge' ? '📩 Discord notifié — candidature prise en charge' :
     newStatut === 'accepte'   ? '✓ Candidature acceptée — Discord notifié' :
+    newStatut === 'vire'      ? '⛔ Retiré du poste — Discord notifié, peut repostuler' :
                                 '✕ Candidature refusée — Discord notifié',
-    newStatut === 'refuse' ? 'error' : 'success'
+    (newStatut === 'refuse' || newStatut === 'vire') ? 'error' : 'success'
   );
 }
 
@@ -1373,7 +1399,7 @@ function hide(id) { document.getElementById(id).style.display = 'none'; }
 function val(id)  { return document.getElementById(id).value.trim(); }
 function esc(s)   { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
 function showFormError(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = ''; }
-function statusLabel(s) { return { en_attente:'En attente', en_charge:'Pris en charge', accepte:'Accepté', refuse:'Refusé' }[s]||s; }
+function statusLabel(s) { return { en_attente:'En attente', en_charge:'Pris en charge', accepte:'Accepté', refuse:'Refusé', vire:'Retiré du poste' }[s]||s; }
 let toastTimer = null;
 function toast(msg, type='success') {
   const el = document.getElementById('toast');
