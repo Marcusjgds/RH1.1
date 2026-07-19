@@ -11,7 +11,7 @@ const FIREBASE_CONFIG = {
   appId:             "1:1010449432094:web:b17a0ad2e790681c62f80f",
 };
 
-const DEFAULT_CONFIG  = { password: 'rh2025', adminPassword: 'Site11RpFr', maintenance: false };
+const DEFAULT_CONFIG  = { password: 'rh2025', adminPassword: 'Site11RPFR', maintenance: false };
 const RH_NAME_KEY      = 'rh_name';
 const RH_ROLE_KEY      = 'rh_role';
 const DEFAULT_PERMISSIONS = { viewCandidatures: true, actionCandidatures: true };
