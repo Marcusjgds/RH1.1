@@ -22,7 +22,7 @@ const DEFAULT_PERMISSIONS = { viewCandidatures: true, actionCandidatures: true }
    3. Onglet OAuth2 → Redirects → ajoute EXACTEMENT l'URL de ton site
       (celle utilisée par DISCORD_REDIRECT_URI, ex: https://tonsite.up.railway.app/)
 */
-const DISCORD_CLIENT_ID    = '1467252987377352778';
+const DISCORD_CLIENT_ID    = '1527105833459122206';
 const DISCORD_REDIRECT_URI = window.location.origin + '/';
 
 let discordUser = null; // { id, username } une fois vérifié
